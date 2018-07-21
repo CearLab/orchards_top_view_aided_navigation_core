@@ -1,0 +1,7 @@
+<launch>
+    <arg name="ns" default="" />
+    <arg name="map_image_path" />
+    <node pkg="localization" type="synthetic_scan_generator.py" name="synthetic_scan_generator" output="screen">
+        <param name="map_image_path" value="$(arg map_image_path)" />
+    </node>
+</launch>
