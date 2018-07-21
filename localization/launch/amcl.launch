@@ -1,0 +1,26 @@
+<launch>
+    <arg name="ns" default="" />
+    <arg name="scan_topic" default="scan" />
+    <node pkg="amcl" type="amcl" name="amcl">
+        <remap from="scan" to="$(arg scan_topic)" />
+        <param name="odom_frame_id" value="$(arg ns)/odom" />
+        <param name="base_frame_id" value="$(arg ns)/base_link" />
+        <param name="global_frame_id" value="$(arg ns)/map" />
+        <param name="use_map_topic" value="false" />
+        <param name="odom_model_type" value="omni-corrected" />
+        <param name="odom_alpha1" value="0.005" />
+        <param name="odom_alpha2" value="0.005" />
+        <param name="odom_alpha3" value="0.010" />
+        <param name="odom_alpha4" value="0.005" />
+        <param name="odom_alpha5" value="0.003" />
+        <param name="min_particles" value="800" />
+        <param name="max_particles" value="8000" />
+        <!--<param name="min_particles" value="5000" />-->
+        <!--<param name="max_particles" value="20000" />-->
+        <!--<param name="transform_tolerance" value="0.5" />-->
+        <!--<param name="update_min_a" value="0.1" />-->
+        <param name="recovery_alpha_slow" value="0.001" />
+        <param name="recovery_alpha_fast" value="0.1" />
+    </node>
+    <node pkg="rosservice" type="rosservice" name="global_loc" args="call --wait /global_localization" />
+</launch>
