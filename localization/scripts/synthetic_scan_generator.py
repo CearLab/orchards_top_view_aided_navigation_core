@@ -7,7 +7,8 @@ import rospy
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import Pose2D
 
-from air_ground_orchard_navigation.computer_vision import contours_scan
+from air_ground_orchard_navigation.computer_vision import contours_scan2
+from air_ground_orchard_navigation.computer_vision.contours_scan_cython import contours_scan
 
 
 class SyntheticScanGenerator(object):
@@ -24,7 +25,7 @@ class SyntheticScanGenerator(object):
         self.resolution = 0.0125
         self.prev_scan_time = None
         self.idx = 0
-        self.scan_pub = rospy.Publisher('scan', LaserScan, queue_size=10)
+        self.scan_pub = rospy.Publisher('scan', LaserScan, queue_size=1)
         rospy.Subscriber('/vehicle_pose', Pose2D, self.pose_callback)
         rospy.spin()
 
@@ -38,15 +39,30 @@ class SyntheticScanGenerator(object):
             return
         self.idx = 1
         # TODO: check if pixel value in (center_x, center_y) is not black and if yes - return (don't execute further this iteration)
-        scan_ranges, _ = contours_scan.generate(self.map_image,
-                                                center_x=message.x,
-                                                center_y=message.y,
-                                                min_angle=self.min_angle,
-                                                max_angle=self.max_angle,
-                                                samples_num=self.samples_num,
-                                                min_distance=self.min_distance,
-                                                max_distance=self.max_distance,
-                                                resolution=self.resolution)  # TODO: fine tune parameters!
+        before1 = datetime.datetime.now()
+        scan_ranges, _ = contours_scan2.generate(self.map_image,
+                                             center_x=message.x,
+                                             center_y=message.y,
+                                             min_angle=self.min_angle,
+                                             max_angle=self.max_angle,
+                                             samples_num=self.samples_num,
+                                             min_distance=self.min_distance,
+                                             max_distance=self.max_distance,
+                                             resolution=self.resolution)  # TODO: fine tune parameters!
+        after1 = datetime.datetime.now()
+        print ('delta1 = ' + str((after1-before1).microseconds))
+        before2 = datetime.datetime.now()
+        scan_ranges = contours_scan.generate(self.map_image,
+                                             center_x=message.x,
+                                             center_y=message.y,
+                                             min_angle=self.min_angle,
+                                             max_angle=self.max_angle,
+                                             samples_num=self.samples_num,
+                                             min_distance=self.min_distance,
+                                             max_distance=self.max_distance,
+                                             resolution=self.resolution)  # TODO: fine tune parameters!
+        after2 = datetime.datetime.now()
+        print ('delta2 = ' + str((after2-before2).microseconds))
         laser_scan = LaserScan()
         laser_scan.header.stamp = rospy.rostime.Time.now()
         laser_scan.header.frame_id = self.frame_id
@@ -62,8 +78,6 @@ class SyntheticScanGenerator(object):
 
 if __name__ == '__main__':
     SyntheticScanGenerator()
-    from experiments_framework.content.data_pointers.lavi_april_18 import dji
-    from air_ground_orchard_navigation.computer_vision import segmentation
     # import cv2
 
     # key = '19-03-5'
