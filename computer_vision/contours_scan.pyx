@@ -2,7 +2,6 @@
 
 import cython
 import numpy as np
-from cython.parallel import prange
 cimport numpy as np
 
 @cython.boundscheck(False)
@@ -12,18 +11,22 @@ cpdef double[:] generate(unsigned char [:, :] map_image, int center_x, int cente
     cdef np.ndarray scan_ranges = np.full(samples_num, np.nan, dtype=np.float)
     cdef int x, y, r
     cdef float theta
+    cdef int width = np.size(map_image, 1)
+    cdef int height = np.size(map_image, 0)
+    cdef np.ndarray diff_vector = np.zeros(2)
 
-    for theta in np.linspace(start=min_angle, stop=max_angle, num=samples_num):
-        for r in np.arange(start=min_distance, stop=max_distance, step=1):
+    for theta in np.linspace(min_angle, max_angle, num=samples_num):
+        for r in np.linspace(min_distance, max_distance):
             x = int(np.round(center_x + r * np.cos(-theta)))
             y = int(np.round(center_y + r * np.sin(-theta)))
-            if not (0 <= x < np.size(map_image, 1) and 0 <= y < np.size(map_image, 0)):
+            if not (0 <= x < width and 0 <= y < height):
                 break
-            if map_image[y, x] in [255, 128]: # TODO: verify order
+            if map_image[y, x] != 0: # TODO: verify order
                 # scan_ranges[scan_index] = (np.sqrt((center_x - x) ** 2 + (center_y - y) ** 2)) * resolution
-                scan_ranges[scan_index] = np.linalg.norm((x - center_x, y - center_y)) * resolution
+                diff_vector[0] = x - center_x
+                diff_vector[1] = y - center_y
+                scan_ranges[scan_index] = np.linalg.norm(diff_vector) * resolution
+                # scan_ranges[scan_index] = np.linalg.norm((x - center_x, y - center_y)) * resolution
                 break
-            # if map_image[y, x] != 0: # TODO: is that condition needed?
-            #     break
         scan_index += 1
     return scan_ranges
