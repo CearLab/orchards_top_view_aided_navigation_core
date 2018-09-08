@@ -1,7 +1,9 @@
 <launch>
     <arg name="ns" default="" />
-    <arg name="map_image_path" />
+    <arg name="localization_image_path" />
+    <arg name="resolution" />
     <node pkg="localization" type="synthetic_scan_generator.py" name="synthetic_scan_generator" output="screen">
-        <param name="map_image_path" value="$(arg map_image_path)" />
+        <param name="localization_image_path" value="$(arg localization_image_path)" />
+        <param name="resolution" value="$(arg resolution)" />
     </node>
 </launch>
