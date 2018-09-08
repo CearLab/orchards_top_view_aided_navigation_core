@@ -16,7 +16,7 @@ cpdef double[:] generate(unsigned char [:, :] map_image, int center_x, int cente
     cdef np.ndarray diff_vector = np.zeros(2)
 
     for theta in np.linspace(min_angle, max_angle, num=samples_num):
-        for r in np.linspace(min_distance, max_distance):
+        for r in np.linspace(min_distance, max_distance): # TODO: maybe need to increase resolution? default is num=50
             x = int(np.round(center_x + r * np.cos(-theta)))
             y = int(np.round(center_y + r * np.sin(-theta)))
             if not (0 <= x < width and 0 <= y < height):
