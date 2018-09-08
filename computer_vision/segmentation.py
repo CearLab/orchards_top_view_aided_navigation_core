@@ -49,6 +49,35 @@ def extract_four_blue_markers(image, lower_color=None, upper_color=None):
     return contours, contours_mask
 
 
+def extract_vehicle(image, lower_color=None, upper_color=None):
+    # TODO: fine tune logic!
+    # TODO: look only where the previous contour was (if not found or jumped to much - return None)
+    # TODO: apply kalman filter for smoothing
+    if lower_color is None and upper_color is None:
+        purple_lower_hue_degrees = 210
+        purple_lower_saturation_percent = 60
+        purple_lower_value_percent = 60
+        purple_upper_hue_degrees = 230
+        purple_upper_saturation_percent = 100
+        purple_upper_value_percent = 100
+        lower_color = np.array([purple_lower_hue_degrees / 2.0, purple_lower_saturation_percent * 255.0 / 100, purple_lower_value_percent * 255.0 / 100])
+        upper_color = np.array([purple_upper_hue_degrees / 2.0, purple_upper_saturation_percent * 255.0 / 100, purple_upper_value_percent * 255.0 / 100])
+    hsv_image = cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    hsv_mask = cv2.inRange(hsv_image, lower_color, upper_color)
+    height, width = hsv_mask.shape
+    hsv_mask[:,:width/10.0] = 0
+    hsv_mask[:,9.0*width/10:] = 0
+    hsv_mask[:height/10.0,:] = 0
+    hsv_mask[9.0*height/10:,:] = 0
+    hsv_mask = cv2.dilate(hsv_mask, kernel=np.ones((9,9),np.uint8), iterations=1)
+    _, contours, hierarchy = cv2.findContours(hsv_mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    contour = sorted(contours, key=lambda contour: cv2.contourArea(contour), reverse=True)[0]
+    moments = cv2.moments(contour)
+    contour_center_x = int(moments['m10'] / moments['m00'])
+    contour_center_y = int(moments['m01'] / moments['m00'])
+    return contour_center_x, contour_center_y
+
+
 def extract_canopies_map(image, lower_color=None, upper_color=None, min_area=None):
     contours_map = np.full((np.size(image, 0), np.size(image, 1)), 0, dtype=np.uint8)
     contours, _ = extract_canopy_contours(image, lower_color, upper_color, min_area)
