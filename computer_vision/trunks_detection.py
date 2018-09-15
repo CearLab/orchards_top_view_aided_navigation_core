@@ -1,3 +1,4 @@
+import itertools
 import cv2
 import numpy as np
 from scipy.signal import find_peaks
@@ -7,7 +8,7 @@ from framework import viz_utils
 from framework import cv_utils
 
 
-def find_orientation(image):
+def estimate_rows_orientation(image):
     _, contours_mask = segmentation.extract_canopy_contours(image)
     angles_to_scores = {}
     for angle in np.linspace(start=-90, stop=90, num=360): # TODO: fine tuning
@@ -32,26 +33,26 @@ def find_orientation(image):
     return orientation
 
 
-def find_tree_centroids(image, angle=None):
-    if angle is not None:
-        rotation_mat = cv2.getRotationMatrix2D((image.shape[1] / 2, image.shape[0] / 2), angle, scale=1.0)  # TODO: verify order of coordinates
-        image = cv2.warpAffine(image, rotation_mat, (image.shape[1], image.shape[0]))
-    centroids = []
-    _, contours_mask = segmentation.extract_canopy_contours(image)
+def find_tree_centroids(image, angle):
+    rotation_mat = cv2.getRotationMatrix2D((image.shape[1] / 2, image.shape[0] / 2), angle, scale=1.0)  # TODO: verify order of coordinates
+    rotated_image = cv2.warpAffine(image, rotation_mat, (image.shape[1], image.shape[0]))
+    rotated_centroids = []
+    _, contours_mask = segmentation.extract_canopy_contours(rotated_image)
     column_sums_vector = np.sum(contours_mask, axis=0)
     aisle_centers, _ = find_peaks(column_sums_vector * (-1), distance=200, width=50)
     for tree_row_left_limit, tree_tow_right_limit in zip(aisle_centers[:-1], aisle_centers[1:]):
         tree_row = contours_mask[:, tree_row_left_limit:tree_tow_right_limit]
         row_sums_vector = np.sum(tree_row, axis=1)
         tree_locations_in_row, _ = find_peaks(row_sums_vector, distance=160, width=30)
-        centroids.append([(int(np.mean([tree_row_left_limit, tree_tow_right_limit])), tree_location) for tree_location in tree_locations_in_row])
-    return centroids
+        rotated_centroids.append([(int(np.mean([tree_row_left_limit, tree_tow_right_limit])), tree_location) for tree_location in tree_locations_in_row])
+    vertical_rows_centroids_np = np.float32(list(itertools.chain.from_iterable(rotated_centroids))).reshape(-1, 1, 2)
+    rotation_mat = np.insert(cv2.getRotationMatrix2D((image.shape[1] / 2, image.shape[0] / 2), angle * (-1), scale=1.0), [2], [0, 0, 1], axis=0)  # TODO: verify coordinates order
+    centroids_np = cv2.perspectiveTransform(vertical_rows_centroids_np, rotation_mat)
+    centroids = [tuple(elem) for elem in centroids_np[:, 0, :].tolist()]
+    return centroids, rotated_centroids
 
 
-def estimate_deltas(rotated_centroids, angle=None):
-    if angle is not None:
-        raise NotImplementedError
-    # TODO: rotate if angle is given
+def estimate_grid_dimensions(rotated_centroids):
     row_locations = map(lambda row: np.median([centroid[0] for centroid in row]), rotated_centroids)
     delta_x = np.median(np.array(row_locations[1:]) - np.array(row_locations[:-1]))
     tree_distances = []
@@ -61,21 +62,59 @@ def estimate_deltas(rotated_centroids, angle=None):
     delta_y = np.median(tree_distances)
     return delta_x, delta_y
 
-def estimate_shear(rotated_centoids, angle=None):
-    if angle is not None:
-        raise NotImplementedError
-    # TODO: rotate if angle is given
-    lines = []
+
+def estimate_shear(rotated_centoids):
+    drift_vectors = []
     thetas = []
     for row, next_row in zip(rotated_centoids[:-1], rotated_centoids[1:]):
-        print 'new row'
         for centroid in row:
             distances = [(centroid[0] - next_row_centroid[0]) ** 2 + (centroid[1] - next_row_centroid[1]) ** 2 for next_row_centroid in next_row]
             closest_centroid = next_row[distances.index(min(distances))]
-            # print np.rad2deg((np.arctan2(centroid[1], centroid[0]) - np.arctan2(closest_centroid[1], closest_centroid[0])) % (2 * np.pi))
-            # print np.rad2deg(np.arctan2(closest_centroid[1] - centroid[1], closest_centroid[0] - centroid[0]))
-            thetas.append(np.rad2deg(np.arctan2(closest_centroid[1] - centroid[1], closest_centroid[0] - centroid[0]) * (-1))) # TODO: verify correctness (especially CCW)
-            lines.append((centroid, closest_centroid))
-    shear = np.median(thetas)
+            # thetas.append(np.rad2deg(np.arctan2(closest_centroid[1] - centroid[1], closest_centroid[0] - centroid[0]) * (-1))) # TODO: verify correctness (especially CCW)
+            thetas.append(np.arctan2(closest_centroid[1] - centroid[1], closest_centroid[0] - centroid[0]) * (-1)) # TODO: verify correctness (especially CCW)
+            drift_vectors.append((centroid, closest_centroid))
+    shear = np.sin(np.median(thetas)) * (-1) # TODO: check this!!!!!!
+    print np.sin(np.median(thetas))
     # TODO: can use RANSAC / linear regression / PCA to estimate the shear
-    return shear
+    return shear, drift_vectors
+
+
+def get_essential_grid(delta_x, delta_y, shear, n):
+    nodes = list(itertools.product(np.arange(0, n * delta_x, step=delta_x), np.arange(0, n * delta_y, step=delta_y)))
+    nodes_np = np.float32(nodes).reshape(-1, 1, 2)
+    shear_mat = np.float32([[1, 0, 0], [shear, 1, 0], [0, 0, 1]])
+    sheared_nodes_np = cv2.perspectiveTransform(nodes_np, shear_mat)
+    sheared_nodes = [tuple(elem) for elem in sheared_nodes_np[:, 0, :].tolist()]
+    return sheared_nodes
+
+
+def find_origin(rotated_centroids, grid, image_width, image_height):
+    min_error = np.inf
+    origin = None
+    flattened_rotated_centroids = list(itertools.chain.from_iterable(rotated_centroids))
+    for candidate_origin in flattened_rotated_centroids:
+        candidate_grid_np = np.array(grid) + candidate_origin
+        if np.any(candidate_grid_np < 0) or np.any(candidate_grid_np[:,0] >= image_height) or np.any(candidate_grid_np[:,1] >= image_width): # TODO: verify this! potential logic bug which won't fail!!!!!!!!!!!
+            continue
+        error = 0
+        for x, y in candidate_grid_np:
+            distances = [(x - centroid[0]) ** 2 + (y - centroid[1]) ** 2 for centroid in flattened_rotated_centroids]
+            error += min(distances)
+        if error < min_error:
+            min_error = error
+            origin = candidate_origin
+    return origin
+
+
+def get_grid(delta_x, delta_y, origin, angle, shear, n):
+    nodes = list(itertools.product(np.arange(0, n * delta_x, step=delta_x), np.arange(0, n * delta_y, step=delta_y)))
+    nodes_np = np.float32(nodes).reshape(-1, 1, 2)
+    shear_mat = np.float32([[1, 0, 0], [shear, 1, 0], [0, 0, 1]])
+    transformed_nodes_np = cv2.perspectiveTransform(nodes_np, shear_mat)
+    rotation_mat = np.insert(cv2.getRotationMatrix2D((nodes[0][0], nodes[0][1]), angle, scale=1.0), [2], [0, 0, 1], axis=0) # TODO: verify coordinates order
+    transformed_nodes_np = cv2.perspectiveTransform(transformed_nodes_np, rotation_mat)
+    translation_mat = np.float32([[1, 0, origin[0]], [0, 1, origin[1]], [0, 0, 1]]) # TODO: verify correctenss!
+    transformed_nodes_np = cv2.perspectiveTransform(transformed_nodes_np, translation_mat)
+    transformed_nodes = [tuple(elem) for elem in transformed_nodes_np[:, 0, :].tolist()]
+    return transformed_nodes
+
