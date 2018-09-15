@@ -15,6 +15,7 @@ def estimate_rows_orientation(image):
         rotation_mat = cv2.getRotationMatrix2D((image.shape[1] / 2, image.shape[0] / 2), angle, scale=1.0) # TODO: verify order of coordinates
         rotated_contours_mask = cv2.warpAffine(contours_mask, rotation_mat, (contours_mask.shape[1], contours_mask.shape[0]))
         column_sums_vector = np.sum(rotated_contours_mask, axis=0)
+        # TODO: hardcoded numbers are bad!!!
         maxima_indices, _ = find_peaks(column_sums_vector, distance=200, width=50)
         minima_indices, _ = find_peaks(column_sums_vector * (-1), distance=200, width=50)
         maxima_values = [column_sums_vector[index] for index in maxima_indices]
@@ -74,47 +75,49 @@ def estimate_shear(rotated_centoids):
             thetas.append(np.arctan2(closest_centroid[1] - centroid[1], closest_centroid[0] - centroid[0]) * (-1)) # TODO: verify correctness (especially CCW)
             drift_vectors.append((centroid, closest_centroid))
     shear = np.sin(np.median(thetas)) * (-1) # TODO: check this!!!!!!
-    print np.sin(np.median(thetas))
     # TODO: can use RANSAC / linear regression / PCA to estimate the shear
     return shear, drift_vectors
 
 
-def get_essential_grid(delta_x, delta_y, shear, n):
-    nodes = list(itertools.product(np.arange(0, n * delta_x, step=delta_x), np.arange(0, n * delta_y, step=delta_y)))
-    nodes_np = np.float32(nodes).reshape(-1, 1, 2)
-    shear_mat = np.float32([[1, 0, 0], [shear, 1, 0], [0, 0, 1]])
-    sheared_nodes_np = cv2.perspectiveTransform(nodes_np, shear_mat)
-    sheared_nodes = [tuple(elem) for elem in sheared_nodes_np[:, 0, :].tolist()]
-    return sheared_nodes
-
-
-def find_origin(rotated_centroids, grid, image_width, image_height):
-    min_error = np.inf
-    origin = None
-    flattened_rotated_centroids = list(itertools.chain.from_iterable(rotated_centroids))
-    for candidate_origin in flattened_rotated_centroids:
-        candidate_grid_np = np.array(grid) + candidate_origin
-        if np.any(candidate_grid_np < 0) or np.any(candidate_grid_np[:,0] >= image_height) or np.any(candidate_grid_np[:,1] >= image_width): # TODO: verify this! potential logic bug which won't fail!!!!!!!!!!!
-            continue
-        error = 0
-        for x, y in candidate_grid_np:
-            distances = [(x - centroid[0]) ** 2 + (y - centroid[1]) ** 2 for centroid in flattened_rotated_centroids]
-            error += min(distances)
-        if error < min_error:
-            min_error = error
-            origin = candidate_origin
-    return origin
-
-
-def get_grid(delta_x, delta_y, origin, angle, shear, n):
+def get_essential_grid(delta_x, delta_y, shear, angle, n):
     nodes = list(itertools.product(np.arange(0, n * delta_x, step=delta_x), np.arange(0, n * delta_y, step=delta_y)))
     nodes_np = np.float32(nodes).reshape(-1, 1, 2)
     shear_mat = np.float32([[1, 0, 0], [shear, 1, 0], [0, 0, 1]])
     transformed_nodes_np = cv2.perspectiveTransform(nodes_np, shear_mat)
-    rotation_mat = np.insert(cv2.getRotationMatrix2D((nodes[0][0], nodes[0][1]), angle, scale=1.0), [2], [0, 0, 1], axis=0) # TODO: verify coordinates order
+    rotation_center = tuple(np.mean(transformed_nodes_np, axis=0)[0])
+    rotation_mat = np.insert(cv2.getRotationMatrix2D(rotation_center, angle, scale=1.0), [2], [0, 0, 1], axis=0) # TODO: verify coordinates order
     transformed_nodes_np = cv2.perspectiveTransform(transformed_nodes_np, rotation_mat)
-    translation_mat = np.float32([[1, 0, origin[0]], [0, 1, origin[1]], [0, 0, 1]]) # TODO: verify correctenss!
-    transformed_nodes_np = cv2.perspectiveTransform(transformed_nodes_np, translation_mat)
     transformed_nodes = [tuple(elem) for elem in transformed_nodes_np[:, 0, :].tolist()]
     return transformed_nodes
 
+
+def find_min_mse_position(centroids, grid, image_width, image_height):
+    min_error = np.inf
+    optimal_origin = None
+    optimal_drift_vectors = None
+    optimal_grid = None
+    for candidate_origin in centroids:
+        candidate_grid_np = np.array(grid) - grid[0] + candidate_origin
+        if np.any(candidate_grid_np < 0) or np.any(candidate_grid_np[:,0] >= image_height) or np.any(candidate_grid_np[:,1] >= image_width): # TODO: verify this! potential logic bug which won't fail!!!!!!!!!!!
+            continue
+        error = 0
+        drift_vectors = []
+        for x, y in candidate_grid_np:
+            distances = [(x - centroid[0]) ** 2 + (y - centroid[1]) ** 2 for centroid in centroids]
+            error += min(distances)
+            drift_vectors.append(((x, y), centroids[distances.index(min(distances))]))
+        if error < min_error:
+            min_error = error
+            optimal_origin = tuple(np.array(candidate_origin) - np.array(grid[0]))
+            optimal_drift_vectors = drift_vectors
+            optimal_grid = [tuple(elem) for elem in candidate_grid_np.tolist()]
+    return optimal_grid, optimal_origin, optimal_drift_vectors
+
+
+def get_grid(delta_x, delta_y, origin, angle, shear, n):
+    essential_grid = get_essential_grid(delta_x, delta_y, shear, angle, n)
+    essential_grid_np = np.float32(essential_grid).reshape(-1, 1, 2)
+    translation_mat = np.float32([[1, 0, origin[0]], [0, 1, origin[1]], [0, 0, 1]]) # TODO: verify correctenss!
+    transformed_grid_np = cv2.perspectiveTransform(essential_grid_np, translation_mat)
+    transformed_grid = [tuple(elem) for elem in transformed_grid_np[:, 0, :].tolist()]
+    return transformed_grid
