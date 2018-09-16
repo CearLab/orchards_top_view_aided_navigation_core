@@ -1,4 +1,5 @@
 import itertools
+from collections import OrderedDict
 import cv2
 import numpy as np
 from scipy.signal import find_peaks
@@ -11,8 +12,8 @@ from framework import cv_utils
 def estimate_rows_orientation(image):
     _, contours_mask = segmentation.extract_canopy_contours(image)
     angles_to_scores = {}
-    for angle in np.linspace(start=-90, stop=90, num=360): # TODO: fine tuning
-        rotation_mat = cv2.getRotationMatrix2D((image.shape[1] / 2, image.shape[0] / 2), angle, scale=1.0) # TODO: verify order of coordinates
+    for correction_angle in np.linspace(start=-90, stop=90, num=360): # TODO: fine tuning
+        rotation_mat = cv2.getRotationMatrix2D((image.shape[1] / 2, image.shape[0] / 2), correction_angle, scale=1.0) # TODO: verify order of coordinates
         rotated_contours_mask = cv2.warpAffine(contours_mask, rotation_mat, (contours_mask.shape[1], contours_mask.shape[0]))
         column_sums_vector = np.sum(rotated_contours_mask, axis=0)
         # TODO: hardcoded numbers are bad!!!
@@ -22,20 +23,20 @@ def estimate_rows_orientation(image):
         minima_values = [column_sums_vector[index] for index in minima_indices]
         mean_maxima = np.mean(maxima_values) if len(maxima_values) > 0 else 0
         mean_minima = np.mean(minima_values) if len(minima_values) > 0 else 1e30
-        angles_to_scores[angle] = (mean_maxima, mean_minima)
+        angles_to_scores[correction_angle] = (mean_maxima, mean_minima)
     keys_maxima = [key for key, value in sorted(angles_to_scores.iteritems(), key=lambda (k, v): v[0], reverse=True)]
     keys_minima = [key for key, value in sorted(angles_to_scores.iteritems(), key=lambda (k, v): v[1], reverse=False)]
     scores = {}
-    for angle in angles_to_scores.keys():
-        scores[angle] = keys_minima.index(angle)
-    orientation = [key for key, value in sorted(scores.iteritems(), key=lambda (k, v): v)][0]
+    for correction_angle in angles_to_scores.keys():
+        scores[correction_angle] = keys_minima.index(correction_angle)
+    orientation = [key for key, value in sorted(scores.iteritems(), key=lambda (k, v): v)][0] * (-1)
     # TODO: this function is a complete mess (code and logic)
     # TODO: convert to fourier logic
     return orientation
 
 
-def find_tree_centroids(image, angle):
-    rotation_mat = cv2.getRotationMatrix2D((image.shape[1] / 2, image.shape[0] / 2), angle, scale=1.0)  # TODO: verify order of coordinates
+def find_tree_centroids(image, correction_angle):
+    rotation_mat = cv2.getRotationMatrix2D((image.shape[1] / 2, image.shape[0] / 2), correction_angle, scale=1.0)  # TODO: verify order of coordinates
     rotated_image = cv2.warpAffine(image, rotation_mat, (image.shape[1], image.shape[0]))
     rotated_centroids = []
     _, contours_mask = segmentation.extract_canopy_contours(rotated_image)
@@ -47,7 +48,7 @@ def find_tree_centroids(image, angle):
         tree_locations_in_row, _ = find_peaks(row_sums_vector, distance=160, width=30)
         rotated_centroids.append([(int(np.mean([tree_row_left_limit, tree_tow_right_limit])), tree_location) for tree_location in tree_locations_in_row])
     vertical_rows_centroids_np = np.float32(list(itertools.chain.from_iterable(rotated_centroids))).reshape(-1, 1, 2)
-    rotation_mat = np.insert(cv2.getRotationMatrix2D((image.shape[1] / 2, image.shape[0] / 2), angle * (-1), scale=1.0), [2], [0, 0, 1], axis=0)  # TODO: verify coordinates order
+    rotation_mat = np.insert(cv2.getRotationMatrix2D((image.shape[1] / 2, image.shape[0] / 2), correction_angle * (-1), scale=1.0), [2], [0, 0, 1], axis=0)  # TODO: verify coordinates order
     centroids_np = cv2.perspectiveTransform(vertical_rows_centroids_np, rotation_mat)
     centroids = [tuple(elem) for elem in centroids_np[:, 0, :].tolist()]
     return centroids, rotated_centroids
@@ -55,13 +56,13 @@ def find_tree_centroids(image, angle):
 
 def estimate_grid_dimensions(rotated_centroids):
     row_locations = map(lambda row: np.median([centroid[0] for centroid in row]), rotated_centroids)
-    delta_x = np.median(np.array(row_locations[1:]) - np.array(row_locations[:-1]))
+    dim_x = np.median(np.array(row_locations[1:]) - np.array(row_locations[:-1]))
     tree_distances = []
     for row in rotated_centroids:
         tree_locations = sorted([centroid[1] for centroid in row])
         tree_distances += list(np.array(tree_locations[1:]) - np.array(tree_locations[:-1]))
-    delta_y = np.median(tree_distances)
-    return delta_x, delta_y
+    dim_y = np.median(tree_distances)
+    return dim_x, dim_y
 
 
 def estimate_shear(rotated_centoids):
@@ -79,8 +80,8 @@ def estimate_shear(rotated_centoids):
     return shear, drift_vectors
 
 
-def get_essential_grid(delta_x, delta_y, shear, angle, n):
-    nodes = list(itertools.product(np.arange(0, n * delta_x, step=delta_x), np.arange(0, n * delta_y, step=delta_y)))
+def get_essential_grid(dim_x, dim_y, shear, angle, n):
+    nodes = list(itertools.product(np.arange(0, n * dim_x, step=dim_x), np.arange(0, n * dim_y, step=dim_y)))
     nodes_np = np.float32(nodes).reshape(-1, 1, 2)
     shear_mat = np.float32([[1, 0, 0], [shear, 1, 0], [0, 0, 1]])
     transformed_nodes_np = cv2.perspectiveTransform(nodes_np, shear_mat)
@@ -114,8 +115,8 @@ def find_min_mse_position(centroids, grid, image_width, image_height):
     return optimal_grid, optimal_origin, optimal_drift_vectors
 
 
-def get_grid(delta_x, delta_y, origin, angle, shear, n):
-    essential_grid = get_essential_grid(delta_x, delta_y, shear, angle, n)
+def get_grid(dim_x, dim_y, origin, angle, shear, n):
+    essential_grid = get_essential_grid(dim_x, dim_y, shear, angle, n)
     essential_grid_np = np.float32(essential_grid).reshape(-1, 1, 2)
     translation_mat = np.float32([[1, 0, origin[0]], [0, 1, origin[1]], [0, 0, 1]]) # TODO: verify correctenss!
     transformed_grid_np = cv2.perspectiveTransform(essential_grid_np, translation_mat)
@@ -123,24 +124,71 @@ def get_grid(delta_x, delta_y, origin, angle, shear, n):
     return transformed_grid
 
 
-def get_gaussians_grid_image(points_grid, sigma, image_width, image_height):
-    def get_gaussian(mu_x, mu_y):
-        gaussian_image = np.full((image_height, image_width), fill_value=0, dtype=np.float64)
-        square_size = 2 * sigma
-        circle_radius = 1.5 * sigma
-        x_start, x_end = max(0, int(mu_x - square_size)), min(image_width, int(mu_x + square_size)) # TODO: width
-        y_start, y_end = max(0, int(mu_y - square_size)), min(image_height, int(mu_y + square_size)) # TODO: height
-        x, y = np.meshgrid(np.arange(x_start, x_end), np.arange(y_start, y_end))
-        squre_gaussian = np.exp(-((x - mu_x) ** 2 + (y - mu_y) ** 2) / (2.0 * sigma ** 2))
-        circle_mask = cv2.circle(img=np.full(squre_gaussian.shape, fill_value=0.0, dtype=np.float64),
-                                 center=(int(mu_x - x_start), int(mu_y - y_start)), radius=int(circle_radius), color=1.0, thickness=-1)
-        squre_gaussian = np.multiply(squre_gaussian, circle_mask)
-        gaussian_image = cv_utils.insert_image_patch(gaussian_image, squre_gaussian, upper_left=(x_start, y_start), lower_right=(x_end, y_end))
-        return gaussian_image
+def get_gaussian_on_image(mu_x, mu_y, sigma, image_width, image_height):
+    gaussian_image = np.full((image_height, image_width), fill_value=0, dtype=np.float64)
+    square_size = 2 * sigma
+    circle_radius = 1.5 * sigma
+    x_start, x_end = max(0, int(mu_x - square_size)), min(image_width, int(mu_x + square_size)) # TODO: width
+    y_start, y_end = max(0, int(mu_y - square_size)), min(image_height, int(mu_y + square_size)) # TODO: height
+    x, y = np.meshgrid(np.arange(x_start, x_end), np.arange(y_start, y_end))
+    squre_gaussian = np.exp(-((x - mu_x) ** 2 + (y - mu_y) ** 2) / (2.0 * sigma ** 2))
+    circle_mask = cv2.circle(img=np.full(squre_gaussian.shape, fill_value=0.0, dtype=np.float64),
+                             center=(int(mu_x - x_start), int(mu_y - y_start)), radius=int(circle_radius), color=1.0, thickness=-1)
+    circle_gaussian = np.multiply(squre_gaussian, circle_mask)
+    gaussian_image = cv_utils.insert_image_patch(gaussian_image, circle_gaussian, upper_left=(x_start, y_start), lower_right=(x_end, y_end))
+    return gaussian_image
 
+
+def get_gaussians_grid_image(points_grid, sigma, image_width, image_height):
     gaussians = np.full((image_height, image_width), fill_value=0, dtype=np.float64)
     for x, y in points_grid:
-        gaussian = get_gaussian(x, y)
+        gaussian = get_gaussian_on_image(x, y, sigma, image_width, image_height)
         gaussians = np.add(gaussians, gaussian)
     gaussians = np.clip(gaussians, a_min=0, a_max=1)
     return gaussians
+    # TODO: this has basically become a visualization function - you can move it from here
+
+
+def trunk_point_score(contours_mask, x, y, sigma):
+    if not (0 <= x <= contours_mask.shape[1] and 0 <= y <= contours_mask.shape[0]):
+        return 0 # TODO: think if I want to punish and give negative reward
+    costs_mask = contours_mask.astype(np.int16)
+    costs_mask[costs_mask == 0] = -255.0
+    gaussian = get_gaussian_on_image(x, y, sigma, contours_mask.shape[1], contours_mask.shape[0])
+    filter_result = np.multiply(gaussian, costs_mask)
+    return np.sum(filter_result) # TODO: this returns nan from time to time
+
+
+def trunks_grid_score(contours_mask, points_grid, sigma):
+    return np.mean([trunk_point_score(contours_mask, x, y, sigma) for (x, y) in points_grid])
+
+
+class TrunksGridOptimization(object):
+    def __init__(self, grid_dim_x, grid_dim_y, origin, angle, shear, sigma, image, n):
+        self.init_grid_dim_x = grid_dim_x
+        self.init_grid_dim_y = grid_dim_y
+        self.init_origin_x = origin[0]
+        self.init_origin_y = origin[1]
+        self.init_angle = angle
+        self.init_shear = shear
+        self.init_sigma = sigma
+        self.contours_mask = segmentation.extract_canopy_contours(image)[1]
+        self.n = n
+        self.width = image.shape[1]
+        self.height = image.shape[0]
+
+    def target(self, args):
+        grid_dim_x, grid_dim_y, origin_x, origin_y, angle, shear, sigma = args
+        points_grid = get_grid(dim_x=grid_dim_x, dim_y=grid_dim_y, origin=(origin_x, origin_y), angle=angle, shear=shear, n=self.n)
+        return trunks_grid_score(self.contours_mask, points_grid, sigma)
+
+    def get_params(self):
+        params = OrderedDict()
+        params['grid_dim_x'] = ['integer', (max(0, self.init_grid_dim_x - 100), self.init_grid_dim_x + 100)]
+        params['grid_dim_y'] = ['integer', (max(0, self.init_grid_dim_y - 100), self.init_grid_dim_y + 100)]
+        params['origin_x'] = ['integer', (max(0, self.init_origin_x - 100), min(self.width, self.init_origin_x + 100))] # TODO: width?
+        params['origin_y'] = ['integer', (max(0, self.init_origin_y - 100), min(self.height, self.init_origin_y + 100))] # TODO: height?
+        params['angle'] = ['real',    (self.init_angle - 15, self.init_angle + 15)]
+        params['shear'] = ['real',    (self.init_shear - 0.15, self.init_shear + 0.15)]
+        params['sigma'] = ['real',    (max(0, self.init_sigma - 100), self.init_sigma + 100)]
+        return params
