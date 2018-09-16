@@ -121,3 +121,26 @@ def get_grid(delta_x, delta_y, origin, angle, shear, n):
     transformed_grid_np = cv2.perspectiveTransform(essential_grid_np, translation_mat)
     transformed_grid = [tuple(elem) for elem in transformed_grid_np[:, 0, :].tolist()]
     return transformed_grid
+
+
+def get_gaussians_grid_image(points_grid, sigma, image_width, image_height):
+    def get_gaussian(mu_x, mu_y):
+        gaussian_image = np.full((image_height, image_width), fill_value=0, dtype=np.float64)
+        square_size = 2 * sigma
+        circle_radius = 1.5 * sigma
+        x_start, x_end = max(0, int(mu_x - square_size)), min(image_width, int(mu_x + square_size)) # TODO: width
+        y_start, y_end = max(0, int(mu_y - square_size)), min(image_height, int(mu_y + square_size)) # TODO: height
+        x, y = np.meshgrid(np.arange(x_start, x_end), np.arange(y_start, y_end))
+        squre_gaussian = np.exp(-((x - mu_x) ** 2 + (y - mu_y) ** 2) / (2.0 * sigma ** 2))
+        circle_mask = cv2.circle(img=np.full(squre_gaussian.shape, fill_value=0.0, dtype=np.float64),
+                                 center=(int(mu_x - x_start), int(mu_y - y_start)), radius=int(circle_radius), color=1.0, thickness=-1)
+        squre_gaussian = np.multiply(squre_gaussian, circle_mask)
+        gaussian_image = cv_utils.insert_image_patch(gaussian_image, squre_gaussian, upper_left=(x_start, y_start), lower_right=(x_end, y_end))
+        return gaussian_image
+
+    gaussians = np.full((image_height, image_width), fill_value=0, dtype=np.float64)
+    for x, y in points_grid:
+        gaussian = get_gaussian(x, y)
+        gaussians = np.add(gaussians, gaussian)
+    gaussians = np.clip(gaussians, a_min=0, a_max=1)
+    return gaussians
