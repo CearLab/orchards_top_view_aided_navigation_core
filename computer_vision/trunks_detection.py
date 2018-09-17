@@ -72,21 +72,25 @@ def estimate_shear(rotated_centoids):
         for centroid in row:
             distances = [(centroid[0] - next_row_centroid[0]) ** 2 + (centroid[1] - next_row_centroid[1]) ** 2 for next_row_centroid in next_row]
             closest_centroid = next_row[distances.index(min(distances))]
-            # thetas.append(np.rad2deg(np.arctan2(closest_centroid[1] - centroid[1], closest_centroid[0] - centroid[0]) * (-1))) # TODO: verify correctness (especially CCW)
-            thetas.append(np.arctan2(closest_centroid[1] - centroid[1], closest_centroid[0] - centroid[0]) * (-1)) # TODO: verify correctness (especially CCW)
+            thetas.append(np.arctan2(closest_centroid[1] - centroid[1], closest_centroid[0] - centroid[0]))
             drift_vectors.append((centroid, closest_centroid))
-    shear = np.sin(np.median(thetas)) * (-1) # TODO: check this!!!!!!
-    # TODO: can use RANSAC / linear regression / PCA to estimate the shear
+    def reject_outliers(data, m):
+        data_np = np.array(data)
+        data_np = data_np[abs(data_np - np.median(data_np)) < m * np.std(data_np)]
+        return data_np.tolist()
+    thetas_filtered = reject_outliers(thetas, m=1.5) # TODO: perhaps it's too agressive and I'm losing inliers!
+    drift_vectors = [drift_vectors[index] for index in [thetas.index(theta) for theta in thetas_filtered]]
+    shear = np.sin(np.median(thetas_filtered))
     return shear, drift_vectors
 
 
-def get_essential_grid(dim_x, dim_y, shear, angle, n):
+def get_essential_grid(dim_x, dim_y, shear, orientation, n):
     nodes = list(itertools.product(np.arange(0, n * dim_x, step=dim_x), np.arange(0, n * dim_y, step=dim_y)))
     nodes_np = np.float32(nodes).reshape(-1, 1, 2)
     shear_mat = np.float32([[1, 0, 0], [shear, 1, 0], [0, 0, 1]])
     transformed_nodes_np = cv2.perspectiveTransform(nodes_np, shear_mat)
     rotation_center = tuple(np.mean(transformed_nodes_np, axis=0)[0])
-    rotation_mat = np.insert(cv2.getRotationMatrix2D(rotation_center, angle, scale=1.0), [2], [0, 0, 1], axis=0) # TODO: verify coordinates order
+    rotation_mat = np.insert(cv2.getRotationMatrix2D(rotation_center, orientation, scale=1.0), [2], [0, 0, 1], axis=0) # TODO: verify coordinates order
     transformed_nodes_np = cv2.perspectiveTransform(transformed_nodes_np, rotation_mat)
     transformed_nodes = [tuple(elem) for elem in transformed_nodes_np[:, 0, :].tolist()]
     return transformed_nodes
@@ -94,11 +98,11 @@ def get_essential_grid(dim_x, dim_y, shear, angle, n):
 
 def find_min_mse_position(centroids, grid, image_width, image_height):
     min_error = np.inf
-    optimal_origin = None
+    optimal_translation = None
     optimal_drift_vectors = None
     optimal_grid = None
-    for candidate_origin in centroids:
-        candidate_grid_np = np.array(grid) - grid[0] + candidate_origin
+    for candidate_translation in centroids:
+        candidate_grid_np = np.array(grid) - grid[0] + candidate_translation
         if np.any(candidate_grid_np < 0) or np.any(candidate_grid_np[:,0] >= image_height) or np.any(candidate_grid_np[:,1] >= image_width): # TODO: verify this! potential logic bug which won't fail!!!!!!!!!!!
             continue
         error = 0
@@ -109,16 +113,16 @@ def find_min_mse_position(centroids, grid, image_width, image_height):
             drift_vectors.append(((x, y), centroids[distances.index(min(distances))]))
         if error < min_error:
             min_error = error
-            optimal_origin = tuple(np.array(candidate_origin) - np.array(grid[0]))
+            optimal_translation = tuple(np.array(candidate_translation) - np.array(grid[0]))
             optimal_drift_vectors = drift_vectors
             optimal_grid = [tuple(elem) for elem in candidate_grid_np.tolist()]
-    return optimal_grid, optimal_origin, optimal_drift_vectors
+    return optimal_grid, optimal_translation, optimal_drift_vectors
 
 
-def get_grid(dim_x, dim_y, origin, angle, shear, n):
-    essential_grid = get_essential_grid(dim_x, dim_y, shear, angle, n)
+def get_grid(dim_x, dim_y, translation, orientation, shear, n):
+    essential_grid = get_essential_grid(dim_x, dim_y, shear, orientation, n)
     essential_grid_np = np.float32(essential_grid).reshape(-1, 1, 2)
-    translation_mat = np.float32([[1, 0, origin[0]], [0, 1, origin[1]], [0, 0, 1]]) # TODO: verify correctenss!
+    translation_mat = np.float32([[1, 0, translation[0]], [0, 1, translation[1]], [0, 0, 1]]) # TODO: verify correctenss!
     transformed_grid_np = cv2.perspectiveTransform(essential_grid_np, translation_mat)
     transformed_grid = [tuple(elem) for elem in transformed_grid_np[:, 0, :].tolist()]
     return transformed_grid
@@ -164,12 +168,12 @@ def trunks_grid_score(contours_mask, points_grid, sigma):
 
 
 class TrunksGridOptimization(object):
-    def __init__(self, grid_dim_x, grid_dim_y, origin, angle, shear, sigma, image, n):
+    def __init__(self, grid_dim_x, grid_dim_y, translation, orientation, shear, sigma, image, n):
         self.init_grid_dim_x = grid_dim_x
         self.init_grid_dim_y = grid_dim_y
-        self.init_origin_x = origin[0]
-        self.init_origin_y = origin[1]
-        self.init_angle = angle
+        self.init_translation_x = translation[0]
+        self.init_translation_y = translation[1]
+        self.init_orientation = orientation
         self.init_shear = shear
         self.init_sigma = sigma
         self.contours_mask = segmentation.extract_canopy_contours(image)[1]
@@ -178,17 +182,17 @@ class TrunksGridOptimization(object):
         self.height = image.shape[0]
 
     def target(self, args):
-        grid_dim_x, grid_dim_y, origin_x, origin_y, angle, shear, sigma = args
-        points_grid = get_grid(dim_x=grid_dim_x, dim_y=grid_dim_y, origin=(origin_x, origin_y), angle=angle, shear=shear, n=self.n)
+        grid_dim_x, grid_dim_y, translation_x, translation_y, orientation, shear, sigma = args
+        points_grid = get_grid(dim_x=grid_dim_x, dim_y=grid_dim_y, translation=(translation_x, translation_y), orientation=orientation, shear=shear, n=self.n)
         return trunks_grid_score(self.contours_mask, points_grid, sigma)
 
     def get_params(self):
         params = OrderedDict()
-        params['grid_dim_x'] = ['integer', (max(0, self.init_grid_dim_x - 100), self.init_grid_dim_x + 100)]
-        params['grid_dim_y'] = ['integer', (max(0, self.init_grid_dim_y - 100), self.init_grid_dim_y + 100)]
-        params['origin_x'] = ['integer', (max(0, self.init_origin_x - 100), min(self.width, self.init_origin_x + 100))] # TODO: width?
-        params['origin_y'] = ['integer', (max(0, self.init_origin_y - 100), min(self.height, self.init_origin_y + 100))] # TODO: height?
-        params['angle'] = ['real',    (self.init_angle - 15, self.init_angle + 15)]
-        params['shear'] = ['real',    (self.init_shear - 0.15, self.init_shear + 0.15)]
-        params['sigma'] = ['real',    (max(0, self.init_sigma - 100), self.init_sigma + 100)]
+        params['grid_dim_x'] = ['integer', (max(0, self.init_grid_dim_x - 50), self.init_grid_dim_x + 50)] # TODO: take in percents of image dimensions (apply to all) or percents of init_drif_dim_x
+        params['grid_dim_y'] = ['integer', (max(0, self.init_grid_dim_y - 50), self.init_grid_dim_y + 50)]
+        params['translation_x'] = ['integer', (max(0, self.init_translation_x - 50), min(self.width, self.init_translation_x + 50))] # TODO: width?
+        params['translation_y'] = ['integer', (max(0, self.init_translation_y - 50), min(self.height, self.init_translation_y + 50))] # TODO: height?
+        params['orientation'] = ['real', (self.init_orientation - 5, self.init_orientation + 5)]
+        params['shear'] = ['real', (self.init_shear - 0.1, self.init_shear + 0.1)]
+        params['sigma'] = ['real', (max(0, self.init_sigma - 50), self.init_sigma + 50)]
         return params
