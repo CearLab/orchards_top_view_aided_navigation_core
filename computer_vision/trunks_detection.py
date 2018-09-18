@@ -157,10 +157,10 @@ def get_gaussians_grid_image(points_grid, sigma, image_width, image_height):
 def trunk_point_score(contours_mask, x, y, sigma):
     if not (0 <= x <= contours_mask.shape[1] and 0 <= y <= contours_mask.shape[0]):
         return 0 # TODO: think if I want to punish and give negative reward
-    costs_mask = contours_mask.astype(np.int16)
-    costs_mask[costs_mask == 0] = -255.0
+    reward_mask = contours_mask.astype(np.int16)
+    reward_mask[reward_mask == 0] = -255.0
     gaussian = get_gaussian_on_image(x, y, sigma, contours_mask.shape[1], contours_mask.shape[0])
-    filter_result = np.multiply(gaussian, costs_mask)
+    filter_result = np.multiply(gaussian, reward_mask)
     return np.sum(filter_result) # TODO: this returns nan from time to time
 
 
@@ -222,3 +222,33 @@ def extrapolate_full_grid(grid_dim_x, grid_dim_y, orientation, shear, base_grid_
     full_grid_df = full_grid_df.dropna(axis=0, how='all').dropna(axis=1, how='all')
     full_grid_np = np.array(full_grid_df)
     return full_grid_np
+
+
+def get_grid_scores_array(full_grid_np, image, sigma):
+    _, contours_mask = segmentation.extract_canopy_contours(image)
+    full_grid_scores_np = np.empty(full_grid_np.shape)
+    for i in range(full_grid_np.shape[0]):
+        for j in range((full_grid_np.shape[1])):
+            if type(full_grid_np[(i, j)]) is not tuple:
+                full_grid_scores_np[(i, j)] = np.nan
+            else:
+                x, y = full_grid_np[(i, j)]
+                full_grid_scores_np[(i, j)] = trunk_point_score(contours_mask, x, y, sigma)
+    return full_grid_scores_np
+
+
+def fit_pattern_on_grid(scores_array_np, pattern_np):
+    max_sum_of_scores = -np.inf
+    maximizing_origin = None
+    for i in range(scores_array_np.shape[0]):
+        for j in range(scores_array_np.shape[1]):
+            if i + pattern_np.shape[0] > scores_array_np.shape[0] or j + pattern_np.shape[1] > scores_array_np.shape[1]:
+                continue
+            sub_scores_array_np = scores_array_np[i : i + pattern_np.shape[0], j : j + pattern_np.shape[1]]
+            if np.any(np.isnan(sub_scores_array_np)):
+                continue
+            sum_of_scores = np.sum(np.multiply(sub_scores_array_np, pattern_np))
+            if sum_of_scores > max_sum_of_scores:
+                max_sum_of_scores = sum_of_scores
+                maximizing_origin = (i, j)
+    return maximizing_origin
