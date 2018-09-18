@@ -2,6 +2,7 @@ import itertools
 from collections import OrderedDict
 import cv2
 import numpy as np
+import pandas as pd
 from scipy.signal import find_peaks
 
 from computer_vision import segmentation
@@ -196,3 +197,28 @@ class TrunksGridOptimization(object):
         params['shear'] = ['real', (self.init_shear - 0.1, self.init_shear + 0.1)]
         params['sigma'] = ['real', (max(0, self.init_sigma - 50), self.init_sigma + 50)]
         return params
+
+
+def extrapolate_full_grid(grid_dim_x, grid_dim_y, orientation, shear, base_grid_origin, image_width, image_height):
+    shear_angle = np.arcsin(shear)
+    n = int(np.max([2 * image_width / grid_dim_x, 2 * image_height / grid_dim_y]))
+    full_grid = get_essential_grid(grid_dim_x, grid_dim_y, shear, orientation, n)
+    full_grid = np.array(full_grid) - np.array(full_grid[0]) + base_grid_origin
+    rotation_pivot = (full_grid[0][0], full_grid[0][1])
+    rotation_mat = np.insert(cv2.getRotationMatrix2D(rotation_pivot, (-1) * orientation, scale=1.0), [2], [0, 0, 1], axis=0)
+    full_grid_np = full_grid.reshape(-1, 1, 2)
+    full_grid_rotated_np = cv2.perspectiveTransform(full_grid_np, rotation_mat)
+    full_grid_rotated = [tuple(elem) for elem in full_grid_rotated_np[:, 0, :].tolist()]
+    full_grid_rotated_and_shifted = (np.array(full_grid_rotated) -
+                                     np.array([int(n / 3) * grid_dim_x, int(n / 3) * (grid_dim_x * np.tan(shear_angle) + grid_dim_y)])).reshape(-1, 1, 2)
+    rotation_mat = np.insert(cv2.getRotationMatrix2D(rotation_pivot, orientation, scale=1.0), [2], [0, 0, 1], axis=0)
+    full_grid_shifted_np = cv2.perspectiveTransform(full_grid_rotated_and_shifted, rotation_mat)
+    full_grid_shifted = [tuple(elem) for elem in full_grid_shifted_np[:, 0, :].tolist()]
+    full_grid_df = pd.DataFrame(index=range(n), columns=range(n))
+    for i in range(n):
+        for j in range(n):
+            coordinates = full_grid_shifted[i + n * j]
+            full_grid_df.loc[i, j] = coordinates if (0 <= coordinates[0] < image_width and 0 <= coordinates[1] < image_height) else np.nan # TODO: verify order of width/height
+    full_grid_df = full_grid_df.dropna(axis=0, how='all').dropna(axis=1, how='all')
+    full_grid_np = np.array(full_grid_df)
+    return full_grid_np
