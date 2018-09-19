@@ -6,34 +6,22 @@ import pandas as pd
 from scipy.signal import find_peaks
 
 from computer_vision import segmentation
-from framework import viz_utils
 from framework import cv_utils
+from nelder_mead import NelderMead
 
 
-def estimate_rows_orientation(image):
+def estimate_rows_orientation(image, search_step=0.5, min_distance_between_peaks=200, min_peak_width=50):
     _, contours_mask = segmentation.extract_canopy_contours(image)
     angles_to_scores = {}
-    for correction_angle in np.linspace(start=-90, stop=90, num=360): # TODO: fine tuning
-        rotation_mat = cv2.getRotationMatrix2D((image.shape[1] / 2, image.shape[0] / 2), correction_angle, scale=1.0) # TODO: verify order of coordinates
+    for correction_angle in np.arange(start=-90, stop=90, step=search_step):
+        rotation_mat = cv2.getRotationMatrix2D((image.shape[1] / 2, image.shape[0] / 2), correction_angle, scale=1.0)
         rotated_contours_mask = cv2.warpAffine(contours_mask, rotation_mat, (contours_mask.shape[1], contours_mask.shape[0]))
         column_sums_vector = np.sum(rotated_contours_mask, axis=0)
-        # TODO: hardcoded numbers are bad!!!
-        maxima_indices, _ = find_peaks(column_sums_vector, distance=200, width=50)
-        minima_indices, _ = find_peaks(column_sums_vector * (-1), distance=200, width=50)
-        maxima_values = [column_sums_vector[index] for index in maxima_indices]
+        minima_indices, _ = find_peaks(column_sums_vector * (-1), distance=min_distance_between_peaks, width=min_peak_width)
         minima_values = [column_sums_vector[index] for index in minima_indices]
-        mean_maxima = np.mean(maxima_values) if len(maxima_values) > 0 else 0
         mean_minima = np.mean(minima_values) if len(minima_values) > 0 else 1e30
-        angles_to_scores[correction_angle] = (mean_maxima, mean_minima)
-    keys_maxima = [key for key, value in sorted(angles_to_scores.iteritems(), key=lambda (k, v): v[0], reverse=True)]
-    keys_minima = [key for key, value in sorted(angles_to_scores.iteritems(), key=lambda (k, v): v[1], reverse=False)]
-    scores = {}
-    for correction_angle in angles_to_scores.keys():
-        scores[correction_angle] = keys_minima.index(correction_angle)
-    orientation = [key for key, value in sorted(scores.iteritems(), key=lambda (k, v): v)][0] * (-1)
-    # TODO: this function is a complete mess (code and logic)
-    # TODO: convert to fourier logic
-    return orientation
+        angles_to_scores[correction_angle] = mean_minima
+    return [key for key, value in sorted(angles_to_scores.iteritems(), key=lambda (k, v): v, reverse=False)][0] * (-1)
 
 
 def find_tree_centroids(image, correction_angle):
@@ -43,16 +31,18 @@ def find_tree_centroids(image, correction_angle):
     _, contours_mask = segmentation.extract_canopy_contours(rotated_image)
     column_sums_vector = np.sum(contours_mask, axis=0)
     aisle_centers, _ = find_peaks(column_sums_vector * (-1), distance=200, width=50)
+    slices_and_cumsums = []
     for tree_row_left_limit, tree_tow_right_limit in zip(aisle_centers[:-1], aisle_centers[1:]):
         tree_row = contours_mask[:, tree_row_left_limit:tree_tow_right_limit]
         row_sums_vector = np.sum(tree_row, axis=1)
         tree_locations_in_row, _ = find_peaks(row_sums_vector, distance=160, width=30)
         rotated_centroids.append([(int(np.mean([tree_row_left_limit, tree_tow_right_limit])), tree_location) for tree_location in tree_locations_in_row])
+        slices_and_cumsums.append((tree_row, row_sums_vector))
     vertical_rows_centroids_np = np.float32(list(itertools.chain.from_iterable(rotated_centroids))).reshape(-1, 1, 2)
     rotation_mat = np.insert(cv2.getRotationMatrix2D((image.shape[1] / 2, image.shape[0] / 2), correction_angle * (-1), scale=1.0), [2], [0, 0, 1], axis=0)  # TODO: verify coordinates order
     centroids_np = cv2.perspectiveTransform(vertical_rows_centroids_np, rotation_mat)
     centroids = [tuple(elem) for elem in centroids_np[:, 0, :].tolist()]
-    return centroids, rotated_centroids
+    return centroids, rotated_centroids, aisle_centers, slices_and_cumsums
 
 
 def estimate_grid_dimensions(rotated_centroids):
@@ -154,21 +144,21 @@ def get_gaussians_grid_image(points_grid, sigma, image_width, image_height):
     # TODO: this has basically become a visualization function - you can move it from here
 
 
-def trunk_point_score(contours_mask, x, y, sigma):
+def _trunk_point_score(contours_mask, x, y, sigma):
     if not (0 <= x <= contours_mask.shape[1] and 0 <= y <= contours_mask.shape[0]):
         return 0 # TODO: think if I want to punish and give negative reward
     reward_mask = contours_mask.astype(np.int16)
     reward_mask[reward_mask == 0] = -255.0
     gaussian = get_gaussian_on_image(x, y, sigma, contours_mask.shape[1], contours_mask.shape[0])
     filter_result = np.multiply(gaussian, reward_mask)
-    return np.sum(filter_result) # TODO: this returns nan from time to time
+    return np.sum(filter_result)
 
 
-def trunks_grid_score(contours_mask, points_grid, sigma):
-    return np.mean([trunk_point_score(contours_mask, x, y, sigma) for (x, y) in points_grid])
+def _trunks_grid_score(contours_mask, points_grid, sigma):
+    return np.mean([_trunk_point_score(contours_mask, x, y, sigma) for (x, y) in points_grid])
 
 
-class TrunksGridOptimization(object):
+class _TrunksGridOptimization(object):
     def __init__(self, grid_dim_x, grid_dim_y, translation, orientation, shear, sigma, image, n):
         self.init_grid_dim_x = grid_dim_x
         self.init_grid_dim_y = grid_dim_y
@@ -185,7 +175,7 @@ class TrunksGridOptimization(object):
     def target(self, args):
         grid_dim_x, grid_dim_y, translation_x, translation_y, orientation, shear, sigma = args
         points_grid = get_grid(dim_x=grid_dim_x, dim_y=grid_dim_y, translation=(translation_x, translation_y), orientation=orientation, shear=shear, n=self.n)
-        return trunks_grid_score(self.contours_mask, points_grid, sigma)
+        return _trunks_grid_score(self.contours_mask, points_grid, sigma)
 
     def get_params(self):
         params = OrderedDict()
@@ -197,6 +187,15 @@ class TrunksGridOptimization(object):
         params['shear'] = ['real', (self.init_shear - 0.1, self.init_shear + 0.1)]
         params['sigma'] = ['real', (max(0, self.init_sigma - 50), self.init_sigma + 50)]
         return params
+
+
+def optimize_grid(grid_dim_x, grid_dim_y, translation, orientation, shear, sigma, cropped_image, n, recommended_iterations=30):
+    opt = _TrunksGridOptimization(grid_dim_x, grid_dim_y, translation, orientation, shear, sigma, cropped_image, n)
+    nm = NelderMead(opt.target, opt.get_params(), verbose=True)
+    optimized_grid_args, _ = nm.maximize(n_iter=recommended_iterations) # TODO: consider playing with other parameters
+    optimized_grid_dim_x, optimized_grid_dim_y, optimized_translation_x, optimized_translation_y, optimized_orientation, optimized_shear, optimized_sigma = optimized_grid_args
+    optimized_grid = get_grid(optimized_grid_dim_x, optimized_grid_dim_y, (optimized_translation_x, optimized_translation_y), optimized_orientation, optimized_shear, n)
+    return optimized_grid, optimized_grid_args
 
 
 def extrapolate_full_grid(grid_dim_x, grid_dim_y, orientation, shear, base_grid_origin, image_width, image_height):
@@ -233,7 +232,7 @@ def get_grid_scores_array(full_grid_np, image, sigma):
                 full_grid_scores_np[(i, j)] = np.nan
             else:
                 x, y = full_grid_np[(i, j)]
-                full_grid_scores_np[(i, j)] = trunk_point_score(contours_mask, x, y, sigma)
+                full_grid_scores_np[(i, j)] = _trunk_point_score(contours_mask, x, y, sigma)
     return full_grid_scores_np
 
 
