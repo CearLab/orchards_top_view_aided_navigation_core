@@ -1,0 +1,9 @@
+<launch>
+    <arg name="ns" default="" />
+    <arg name="resolution" />
+    <arg name="noise_sigma" />
+    <node pkg="localization" type="synthetic_odometry.py" name="synthetic_odometry" output="screen" >
+        <param name="resolution" value="$(arg resolution)" />
+        <param name="noise_sigma" value="$(arg noise_sigma)" />
+    </node>
+</launch>
