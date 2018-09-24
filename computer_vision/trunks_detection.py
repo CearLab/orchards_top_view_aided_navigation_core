@@ -231,7 +231,7 @@ def get_grid_scores_array(full_grid_np, image, sigma):
     full_grid_scores_np = np.empty(full_grid_np.shape)
     for i in range(full_grid_np.shape[0]):
         for j in range((full_grid_np.shape[1])):
-            if type(full_grid_np[(i, j)]) is not tuple:
+            if np.any(np.isnan(full_grid_np[(i, j)])):
                 full_grid_scores_np[(i, j)] = np.nan
             else:
                 x, y = full_grid_np[(i, j)]
@@ -256,108 +256,23 @@ def fit_pattern_on_grid(scores_array_np, pattern_np):
     return maximizing_origin, max_sum_of_scores
 
 
-# class _TrunkRefinementOptimization(object):
-#     def __init__(self, x, y, r, contours_mask):
-#         self.init_x = x
-#         self.init_y = y
-#         self.init_r = r
-#         self.contours_mask = contours_mask
-#
-#     def target(self, args):
-#         x, y, r = args
-#         return _trunk_point_score(self.contours_mask, x, y, sigma=r)
-#
-#
-#     def get_params(self, xy_margin=50, r_margin=10): # TODO: play with margins
-#         params = OrderedDict()
-#         params['x'] = ['integer', (max(0, self.init_x - xy_margin), self.init_x + xy_margin)]
-#         params['y'] = ['integer', (max(0, self.init_y - xy_margin), self.init_y + xy_margin)]
-#         params['r'] = ['integer', (max(0, self.init_r - r_margin), self.init_r + r_margin)]
-#         return params
-
-class _TrunkRefinementOptimization(object):
-    def __init__(self, x, y, x_size, y_size, contours_mask):
-        self.init_x = x
-        self.init_y = y
-        self.x_size = x_size
-        self.y_size = y_size
-        self.contours_mask = contours_mask
-
-    # def target(self, args):
-    #     x, y = args
-    #     canopy_patch, _, _ = cv_utils.crop_region(self.contours_mask, x, y, self.x_size, self.y_size)
-    #     gaussian = get_gaussian_on_image(mu_x=canopy_patch.shape[1] / 2, mu_y=canopy_patch.shape[0] / 2, sigma=100,
-    #                                      image_width=canopy_patch.shape[1], image_height=canopy_patch.shape[0]) # TODO: verify order
-    #     canopy_patch = np.multiply(gaussian, canopy_patch) # TODO: verify types!
-    #     cv2.imwrite(r'/home/omer/Downloads/moments/current.jpg', canopy_patch)
-    #     moments = cv2.moments(canopy_patch)
-    #     if moments['m00'] == 0:
-    #         return np.inf
-    #     if canopy_patch[canopy_patch.shape[1] / 2, canopy_patch.shape[0] / 2] == 0: # TODO: verify order
-    #         return np.inf
-    #     center_of_mass = moments['m10'] / moments['m00'], moments['m01'] / moments['m00']
-    #     # return (center_of_mass[0] - canopy_patch.shape[0] / 2) ** 2 + (center_of_mass[1] - canopy_patch.shape[1] / 2) ** 2
-    #     return _trunk_point_score(self.contours_mask, x, y, sigma=100)
-
-    def target(self, args):
-        x, y = args
-        canopy_patch, _, _ = cv_utils.crop_region(self.contours_mask, x, y, self.x_size, self.y_size)
-        if canopy_patch.shape[0] != canopy_patch.shape[1]: # TODO: remove
-            raise Exception('ne size')
-        return _trunk_point_score(self.contours_mask, x, y, sigma=50) # TODO: sigma
-
-
-
-    def get_params(self, xy_margin=60): # TODO: play with margins
-        params = OrderedDict()
-        params['x'] = ['integer', (max(0, self.init_x - xy_margin), self.init_x + xy_margin)]
-        params['y'] = ['integer', (max(0, self.init_y - xy_margin), self.init_y + xy_margin)]
-        return params
-
-
-def refine_trunk_locations(image, trunk_coordinates_np, sigma, iterations_num=3): # TODO: arguments! (sigma, size_x, size_y, etc.)
-    size_x = 250
-    size_y = 250
+def refine_trunk_locations(image, trunk_coordinates_np, sigma): # TODO: this function is a mess - improve it!
     _, contours_mask = segmentation.extract_canopy_contours(image)
     refined_trunk_locations_df = pd.DataFrame(index=range(trunk_coordinates_np.shape[0]), columns=range(trunk_coordinates_np.shape[1]))
     for i in range(trunk_coordinates_np.shape[0]):
         for j in range(trunk_coordinates_np.shape[1]):
-            if type(trunk_coordinates_np[(i, j)]) is not tuple:
+            if np.any(np.isnan(trunk_coordinates_np[(i, j)])):
                 continue
             x, y = trunk_coordinates_np[(i, j)]
-            # label =  (int(j + 1), chr(65 + (trunk_coordinates_np.shape[0] - 1 - i))) # TODO: remove
-            # if label != (6, 'G'):
-            #     refined_trunk_locations_df.loc[i, j] = (x, y)
-            #     continue
-            opt = _TrunkRefinementOptimization(x, y, x_size=size_x, y_size=size_y, contours_mask=contours_mask)
-            nm = NelderMead(opt.target, opt.get_params(), verbose=True)
-            optimized_trunk_location_args, f = nm.maximize(n_iter=iterations_num)  # TODO: play with Nelder Mead parameters, remove f
-            refined_x, refined_y = optimized_trunk_location_args
-            start_value = opt.target((x, y))
-            end_value = opt.target((refined_x, refined_y))
-            if start_value > end_value:
-                refined_x, refined_y = x, y
-            refined_trunk_locations_df.loc[i, j] = (refined_x, refined_y)
-
-            #######
-            canopy_patch, _, _ = cv_utils.crop_region(contours_mask, refined_x, refined_y, size_x, size_y)
-            moments = cv2.moments(canopy_patch)
-            center_of_mass = moments['m10'] / moments['m00'], moments['m01'] / moments['m00']
-            save_image = cv_utils.draw_points_on_image(canopy_patch, [center_of_mass], color=0)  # TODO: remove
-            save_image = cv_utils.draw_points_on_image(save_image, [(canopy_patch.shape[0] / 2, canopy_patch.shape[1] / 2)], color=128, radius=5)  # TODO: remove
-            cv2.imwrite(r'/home/omer/Downloads/moments/%d_%s.jpg' % (int(j + 1), chr(65 + (trunk_coordinates_np.shape[0] - 1 - i))), save_image)  # TODO: remove
-            canopy_patch, _, _ = cv_utils.crop_region(contours_mask, x, y, size_x, size_y)
-            moments = cv2.moments(canopy_patch)
-            center_of_mass = moments['m10'] / moments['m00'], moments['m01'] / moments['m00']
-            save_image = cv_utils.draw_points_on_image(canopy_patch, [center_of_mass], color=0)  # TODO: remove
-            save_image = cv_utils.draw_points_on_image(save_image, [(canopy_patch.shape[0] / 2, canopy_patch.shape[1] / 2)], color=128, radius=5)  # TODO: remove
-            cv2.imwrite(r'/home/omer/Downloads/moments/%d_%s_before.jpg' % (int(j + 1), chr(65 + (trunk_coordinates_np.shape[0] - 1 - i))), save_image)  # TODO: remove
-
-            if start_value > end_value:
-                print ('BAD OPTIMIZATION!!!!')
-                print ('% d_% s' % (int(j + 1), chr(65 + (trunk_coordinates_np.shape[0] - 1 - i))))
-            # print 'before: ' + str(opt.target((x, y)))
-            # print 'after: ' + str(opt.target((refined_x, refined_y)))
-            #######
-
-    return refined_trunk_locations_df.as_matrix()
+            max_score = -np.inf
+            best_x, best_y = None, None
+            for candidate_x, candidate_y in itertools.product(np.round(np.linspace(x - 50, x + 50, num=20)), np.round(np.linspace(y - 50, y + 50, num=20))):
+                canopy_patch, _, _ = cv_utils.crop_region(contours_mask, candidate_x, candidate_y, 300, 300)
+                circle_mask = np.full(canopy_patch.shape, fill_value=0, dtype=np.uint8)
+                circle_mask = cv2.circle(circle_mask, center=(canopy_patch.shape[1] / 2, canopy_patch.shape[0] / 2), radius=95, color=255, thickness=-1)
+                score = np.sum(cv2.bitwise_and(canopy_patch, canopy_patch, mask=circle_mask))
+                if score > max_score:
+                    max_score = score
+                    best_x, best_y = candidate_x, candidate_y
+            refined_trunk_locations_df.loc[i, j] = (best_x, best_y)
+    return np.array(refined_trunk_locations_df)
