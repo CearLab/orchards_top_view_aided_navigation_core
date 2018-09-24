@@ -256,9 +256,11 @@ def fit_pattern_on_grid(scores_array_np, pattern_np):
     return maximizing_origin, max_sum_of_scores
 
 
-def refine_trunk_locations(image, trunk_coordinates_np, sigma): # TODO: this function is a mess - improve it!
+def refine_trunk_locations(image, trunk_coordinates_np, sigma, dim_x, dim_y, samples_along_axis=30, window_shift=50):
     _, contours_mask = segmentation.extract_canopy_contours(image)
     refined_trunk_locations_df = pd.DataFrame(index=range(trunk_coordinates_np.shape[0]), columns=range(trunk_coordinates_np.shape[1]))
+    window_size = int(np.max([dim_x, dim_y]) * 1.1)
+    circle_radius = int(sigma * 1.2)
     for i in range(trunk_coordinates_np.shape[0]):
         for j in range(trunk_coordinates_np.shape[1]):
             if np.any(np.isnan(trunk_coordinates_np[(i, j)])):
@@ -266,10 +268,11 @@ def refine_trunk_locations(image, trunk_coordinates_np, sigma): # TODO: this fun
             x, y = trunk_coordinates_np[(i, j)]
             max_score = -np.inf
             best_x, best_y = None, None
-            for candidate_x, candidate_y in itertools.product(np.round(np.linspace(x - 50, x + 50, num=20)), np.round(np.linspace(y - 50, y + 50, num=20))):
-                canopy_patch, _, _ = cv_utils.crop_region(contours_mask, candidate_x, candidate_y, 300, 300)
+            for candidate_x, candidate_y in itertools.product(np.round(np.linspace(x - window_shift, x + window_shift, num=samples_along_axis)),
+                                                              np.round(np.linspace(y - window_shift, y + window_shift, num=samples_along_axis))):
+                canopy_patch, _, _ = cv_utils.crop_region(contours_mask, candidate_x, candidate_y, window_size, window_size)
                 circle_mask = np.full(canopy_patch.shape, fill_value=0, dtype=np.uint8)
-                circle_mask = cv2.circle(circle_mask, center=(canopy_patch.shape[1] / 2, canopy_patch.shape[0] / 2), radius=95, color=255, thickness=-1)
+                circle_mask = cv2.circle(circle_mask, center=(canopy_patch.shape[1] / 2, canopy_patch.shape[0] / 2), radius=circle_radius, color=255, thickness=-1)
                 score = np.sum(cv2.bitwise_and(canopy_patch, canopy_patch, mask=circle_mask))
                 if score > max_score:
                     max_score = score
