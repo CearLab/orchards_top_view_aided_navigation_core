@@ -1,7 +1,9 @@
 <launch>
     <arg name="ns" default="" />
     <arg name="map_yaml_path" />
-    <node name="map_server" pkg="map_server" type="map_server" args="$(arg map_yaml_path)" >
-        <param name="frame_id" value="$(arg ns)/map" />
-    </node>
+    <group ns="$(arg ns)">
+        <node name="map_server" pkg="map_server" type="map_server" args="$(arg map_yaml_path)" >
+            <param name="frame_id" value="$(arg ns)/map" />
+        </node>
+    </group>
 </launch>

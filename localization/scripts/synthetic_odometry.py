@@ -11,8 +11,8 @@ class SyntheticOdometry(object):
         self.broadcaster = tf.TransformBroadcaster()
         self.resolution = rospy.get_param('~resolution')
         self.prev_actual_pose = None
-        self.odom_frame_id = 'odom'
-        self.base_frame_id = 'base_link'
+        self.odom_frame_id = rospy.get_param('~odom_frame_id')
+        self.base_frame_id = rospy.get_param('~base_frame_id')
         self.noise_mu_x = float(rospy.get_param('~noise_mu_x', default=0)) # TODO: in meters!
         self.noise_mu_y = float(rospy.get_param('~noise_mu_y', default=0)) # TODO: in meters!
         self.noise_sigma_x = float(rospy.get_param('~noise_sigma_x', default=0)) # TODO: in meters!
