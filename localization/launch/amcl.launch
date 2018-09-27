@@ -13,8 +13,8 @@
         <param name="odom_alpha3" value="0.10" />
         <param name="odom_alpha4" value="0.05" />
         <param name="odom_alpha5" value="0.03" />
-        <param name="min_particles" value="800" />
-        <param name="max_particles" value="8000" />
+        <param name="min_particles" value="3000" />
+        <param name="max_particles" value="20000" />
     </node>
     <node pkg="rosservice" type="rosservice" name="global_loc" args="call --wait /global_localization" />
 </launch>
