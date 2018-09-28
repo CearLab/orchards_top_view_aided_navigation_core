@@ -9,6 +9,7 @@
     <arg name="resolution" />
     <arg name="r_primary_search_samples"/>
     <arg name="r_secondary_search_step"/>
+    <arg name="scan_noise_amplitude" default="0"/>
     <group ns="$(arg ns)">
         <node pkg="localization" type="synthetic_scan_generator.py" name="synthetic_scan_generator" output="screen">
             <param name="frame_id" value="$(arg ns)/contours_scan_link" />
@@ -21,6 +22,7 @@
             <param name="resolution" value="$(arg resolution)" />
             <param name="r_primary_search_samples" value="$(arg r_primary_search_samples)" />
             <param name="r_secondary_search_step" value="$(arg r_secondary_search_step)" />
+            <param name="scan_noise_amplitude" value="$(arg scan_noise_amplitude)" />
         </node>
     </group>
 </launch>

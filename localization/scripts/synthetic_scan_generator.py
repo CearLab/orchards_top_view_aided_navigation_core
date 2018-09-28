@@ -7,8 +7,6 @@ import numpy as np
 import rospy
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import Pose2D
-from sensor_msgs.msg import Image
-from cv_bridge import CvBridge
 
 from computer_vision.contours_scan_cython import contours_scan
 from computer_vision import segmentation
@@ -21,27 +19,21 @@ TRACK_NAN_SCANS = False
 class SyntheticScanGenerator(object):
     def __init__(self):
         rospy.init_node('synthetic_scan_generator')
-        virtual_ugv_mode = True # TODO: remove this logic!!!!!
         self.frame_id = rospy.get_param('~frame_id')
         self.min_angle = rospy.get_param('~min_angle')
         self.max_angle = rospy.get_param('~max_angle')
         self.samples_num = rospy.get_param('~samples_num')
-        self.min_distance = rospy.get_param('~min_distance')
-        self.max_distance = rospy.get_param('~max_distance')
+        self.min_distance = rospy.get_param('~min_distance') # TODO: this is in pixels - not so good!!!!!
+        self.max_distance = rospy.get_param('~max_distance') # TODO: this is also in pixels - not so good!!!!!
         self.resolution = rospy.get_param('~resolution')
         self.r_primary_search_samples = rospy.get_param('~r_primary_search_samples')
         self.r_secondary_search_step = rospy.get_param('~r_secondary_search_step')
+        self.noise_amplitude = rospy.get_param('~scan_noise_amplitude')
         self.prev_scan_time = None
         self.scan_pub = rospy.Publisher('scan', LaserScan, queue_size=1)
-        if virtual_ugv_mode:
-            localization_image_path = rospy.get_param('~localization_image_path', None)
-            self.localization_image = cv2.cvtColor(cv2.imread(localization_image_path), cv2.COLOR_BGR2GRAY)
-            rospy.Subscriber('/ugv_pose', Pose2D, self.virtual_pose_callback)
-        else:
-            rospy.Subscriber('/uav/camera/image_raw', Image, self.image_callback, queue_size=1)
-            self.prev_vehicle_x = None
-            self.prev_vehicle_y = None
-            self.cv_bridge = CvBridge()
+        localization_image_path = rospy.get_param('~localization_image_path', None)
+        self.localization_image = cv2.cvtColor(cv2.imread(localization_image_path), cv2.COLOR_BGR2GRAY)
+        rospy.Subscriber('/ugv_pose', Pose2D, self.virtual_pose_callback)
         if PROFILE_SCAN_GENERATOR:
             self.mean_scan_time = None
             self.scan_idx = 0
@@ -68,6 +60,9 @@ class SyntheticScanGenerator(object):
                                              resolution=self.resolution,
                                              r_primary_search_samples=self.r_primary_search_samples,
                                              r_secondary_search_step=self.r_secondary_search_step)
+        if self.noise_amplitude != 0:
+            noise = np.random.binomial(n=self.noise_amplitude, p=0.5, size=len(scan_ranges)) - self.noise_amplitude / 2
+            scan_ranges = scan_ranges + noise
         curr_scan_time = datetime.datetime.now()
         if PROFILE_SCAN_GENERATOR:
             te = time.time()
@@ -100,7 +95,7 @@ class SyntheticScanGenerator(object):
         self.prev_scan_time = curr_scan_time
 
 
-    def image_callback(self, message):
+    def image_callback(self, message): # TODO: remove
         # if message.header.seq % 3 == 0: # TODO: remove??
         #     return
         contours_image = self.cv_bridge.imgmsg_to_cv2(message)
