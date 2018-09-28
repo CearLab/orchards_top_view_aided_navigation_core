@@ -13,14 +13,14 @@ class AstarPathPlanner(AStar):
 
     def distance_between(self, n1, n2):
         neighbor_x, neighbor_y = n2
-        neighbor_height = self.map[neighbor_y, neighbor_x] # TODO: verify order
+        neighbor_height = self.map[neighbor_y, neighbor_x]
         return 1 + neighbor_height
 
     def neighbors(self, node):
         curr_x, curr_y = node
         def is_free(x, y):
             if 0 <= x < self.map.shape[1] and 0 <= y < self.map.shape[0]:
-                if self.map[y, x] != 1: # TODO: verify order
+                if self.map[y, x] != 1:
                     return True
             return False
         return [(x, y) for (x, y) in [(curr_x, curr_y - 1), (curr_x, curr_y + 1),
