@@ -10,8 +10,6 @@ from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import PointStamped
 
 from computer_vision.contours_scan_cython import contours_scan
-from computer_vision import segmentation
-from computer_vision import maps_generation
 
 
 PROFILE_SCAN_GENERATOR = False
