@@ -1,0 +1,20 @@
+<launch>
+    <arg name="min_angle" />
+    <arg name="max_angle" />
+    <arg name="resolution" />
+    <arg name="window_size" />
+    <arg name="canopies_image_path" />
+    <arg name="trunks_image_path" />
+    <arg name="canopies_scans_pickle_path" />
+    <arg name="trunks_scans_pickle_path" />
+    <node pkg="localization" type="contours_scan_visualizer.py" name="contours_scan_visualizer" >
+        <param name="min_angle" value="$(arg min_angle)" />
+        <param name="max_angle" value="$(arg max_angle)" />
+        <param name="resolution" value="$(arg resolution)" />
+        <param name="window_size" value="$(arg window_size)" />
+        <param name="canopies_image_path" value="$(arg canopies_image_path)" />
+        <param name="trunks_image_path" value="$(arg trunks_image_path)" />
+        <param name="canopies_scans_pickle_path" value="$(arg canopies_scans_pickle_path)" />
+        <param name="trunks_scans_pickle_path" value="$(arg trunks_scans_pickle_path)" />
+    </node>
+</launch>
