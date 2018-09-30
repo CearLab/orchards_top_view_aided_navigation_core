@@ -3,7 +3,7 @@
 import numpy as np
 import rospy
 import tf.transformations
-from geometry_msgs.msg import Pose2D
+from geometry_msgs.msg import PointStamped
 
 class SyntheticOdometry(object):
     def __init__(self):
@@ -17,7 +17,7 @@ class SyntheticOdometry(object):
         self.noise_mu_y = float(rospy.get_param('~noise_mu_y', default=0)) # TODO: in meters!
         self.noise_sigma_x = float(rospy.get_param('~noise_sigma_x', default=0)) # TODO: in meters!
         self.noise_sigma_y = float(rospy.get_param('~noise_sigma_y', default=0)) # TODO: in meters!
-        rospy.Subscriber('/ugv_pose', Pose2D, self.pose_callback)
+        rospy.Subscriber('/ugv_pose', PointStamped, self.pose_callback)
 
     def pose_callback(self, this_actual_pose):
         if self.prev_actual_pose is None:
@@ -26,8 +26,8 @@ class SyntheticOdometry(object):
             self.broadcaster.sendTransform((0, 0, 0), tf.transformations.quaternion_from_euler(0, 0, 0), rospy.Time.now(),
                                            child=self.base_frame_id, parent=self.odom_frame_id)
             return
-        actual_delta_x = this_actual_pose.x - self.prev_actual_pose.x
-        actual_delta_y = this_actual_pose.y - self.prev_actual_pose.y
+        actual_delta_x = this_actual_pose.point.x - self.prev_actual_pose.point.x
+        actual_delta_y = this_actual_pose.point.y - self.prev_actual_pose.point.y
         if self.noise_mu_x != 0 or self.noise_sigma_x != 0:
             broadcast_delta_x = actual_delta_x * self.resolution + np.random.normal(self.noise_mu_x, self.noise_sigma_x)
         else:
