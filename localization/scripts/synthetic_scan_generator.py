@@ -32,7 +32,7 @@ class SyntheticScanGenerator(object):
         self.r_primary_search_samples = rospy.get_param('~r_primary_search_samples')
         self.r_secondary_search_step = rospy.get_param('~r_secondary_search_step')
         self.noise_sigma = rospy.get_param('~scan_noise_sigma')
-        self.scans_pickle_path = rospy.get_param('~scans_pickle_path', None)
+        self.scans_pickle_path = None if rospy.get_param('~scans_pickle_path') == 'None' else rospy.get_param('~scans_pickle_path')
         if self.scans_pickle_path is not None:
             with open(self.scans_pickle_path) as f:
                 self.timestamp_to_scan = pickle.load(f)

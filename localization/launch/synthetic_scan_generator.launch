@@ -1,15 +1,16 @@
 <launch>
     <arg name="ns" default="" />
-    <arg name="localization_image_path" default=""/>
+    <arg name="localization_image_path" default="" />
     <arg name="min_angle" />
     <arg name="max_angle" />
     <arg name="samples_num" />
     <arg name="min_distance" />
     <arg name="max_distance" />
     <arg name="resolution" />
-    <arg name="r_primary_search_samples"/>
-    <arg name="r_secondary_search_step"/>
-    <arg name="scan_noise_amplitude" default="0"/>
+    <arg name="r_primary_search_samples" />
+    <arg name="r_secondary_search_step" />
+    <arg name="scan_noise_sigma" default="0" />
+    <arg name="scans_pickle_path" default="" />
     <group ns="$(arg ns)">
         <node pkg="localization" type="synthetic_scan_generator.py" name="synthetic_scan_generator" output="screen">
             <param name="frame_id" value="$(arg ns)/contours_scan_link" />
@@ -22,7 +23,8 @@
             <param name="resolution" value="$(arg resolution)" />
             <param name="r_primary_search_samples" value="$(arg r_primary_search_samples)" />
             <param name="r_secondary_search_step" value="$(arg r_secondary_search_step)" />
-            <param name="scan_noise_amplitude" value="$(arg scan_noise_amplitude)" />
+            <param name="scan_noise_sigma" value="$(arg scan_noise_sigma)" />
+            <param name="scans_pickle_path" value="$(arg scans_pickle_path)" />
         </node>
     </group>
 </launch>
