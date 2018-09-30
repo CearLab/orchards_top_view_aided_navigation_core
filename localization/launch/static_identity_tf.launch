@@ -3,8 +3,14 @@
     <arg name="period_in_ms" default="5" />
     <arg name="frame_id" />
     <arg name="child_frame_id" />
+    <arg name="apply_ns_on_parent" default="true"/>
+    <arg name="apply_ns_on_child" default="true"/>
     <group ns="$(arg ns)">
+        <arg name="full_parent_frame_id" value="$(arg ns)/$(arg frame_id)" if="$(arg apply_ns_on_parent)" />
+        <arg name="full_parent_frame_id" value="/$(arg frame_id)" unless="$(arg apply_ns_on_parent)" />
+        <arg name="full_child_frame_id" value="$(arg ns)/$(arg child_frame_id)" if="$(arg apply_ns_on_child)" />
+        <arg name="full_child_frame_id" value="/$(arg child_frame_id)" unless="$(arg apply_ns_on_child)" />
         <node pkg="tf" type="static_transform_publisher" name="$(arg frame_id)_to_$(arg child_frame_id)_static_tf"
-              args="0 0 0 0 0 0 $(arg ns)/$(arg frame_id) $(arg ns)/$(arg child_frame_id) $(arg period_in_ms)" />
+              args="0 0 0 0 0 0 $(arg full_parent_frame_id) $(arg full_child_frame_id) $(arg period_in_ms)" />
     </group>
 </launch>
