@@ -1,0 +1,6 @@
+<launch>
+    <arg name="ns" default="" />
+    <group ns="$(arg ns)" >
+        <node pkg="rosservice" type="rosservice" name="global_loc" args="call --wait global_localization" />
+    </group>
+</launch>
