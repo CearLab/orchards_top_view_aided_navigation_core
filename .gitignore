@@ -1,2 +1,4 @@
 *.pyc
-*.c
+*.so
+*.o
+contours_scan.c
