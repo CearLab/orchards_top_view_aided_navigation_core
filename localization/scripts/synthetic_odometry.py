@@ -5,6 +5,7 @@ import rospy
 import tf.transformations
 from geometry_msgs.msg import PointStamped
 
+
 class SyntheticOdometry(object):
     def __init__(self):
         rospy.init_node('synthetic_odometry')

@@ -37,7 +37,7 @@ class ContoursScanVisualizer(object):
 
     def _prepare_base_viz_image(self, canopies_image, trunks_image):
         trunks_gray = cv2.cvtColor(trunks_image, cv2.COLOR_BGR2GRAY)
-        trunks_gray[trunks_gray < 20] = 0
+        trunks_gray[trunks_gray < 30] = 0
         trunks_gray[trunks_gray > 220] = 255
         trunks_brown = trunks_image.copy()
         trunks_brown[trunks_gray != 0] = (0, 47, 95)
