@@ -180,21 +180,41 @@ class _TrunksGridOptimization(object):
         return _trunks_grid_score(self.contours_mask, points_grid, sigma)
 
 
-    def get_params(self, dims_margin=60, translation_margin=60, orientation_margin=7, shear_margin=0.12, sigma_margin=50): # TODO: play with margins
+    def get_params(self, dims_margin=60, translation_margin=60, orientation_margin=7, shear_margin=0.12, sigma_margin=50, initial_volume_factor=0.2): # TODO: play with margins
         params = OrderedDict()
         params['grid_dim_x'] = ['integer', (max(0, self.init_grid_dim_x - dims_margin), self.init_grid_dim_x + dims_margin)]
         params['grid_dim_y'] = ['integer', (max(0, self.init_grid_dim_y - dims_margin), self.init_grid_dim_y + dims_margin)]
-        params['translation_x'] = ['integer', (max(0, self.init_translation_x - translation_margin), min(self.width, self.init_translation_x + translation_margin))]
-        params['translation_y'] = ['integer', (max(0, self.init_translation_y - translation_margin), min(self.height, self.init_translation_y + translation_margin))]
+        params['translation_x'] = ['integer', (self.init_translation_x - translation_margin, min(self.width, self.init_translation_x + translation_margin))] # TODO: this was changed (max removed) - suspect this line
+        params['translation_y'] = ['integer', (self.init_translation_y - translation_margin, min(self.height, self.init_translation_y + translation_margin))] # TODO: this was changed (max removed) - suspect this line
         params['orientation'] = ['real', (self.init_orientation - orientation_margin, self.init_orientation + orientation_margin)]
         params['shear'] = ['real', (self.init_shear - shear_margin, self.init_shear + shear_margin)]
         params['sigma'] = ['real', (max(0, self.init_sigma - sigma_margin), self.init_sigma + sigma_margin)]
-        return params
+
+        initial_simplex = [[self.init_grid_dim_x, self.init_grid_dim_y, self.init_translation_x, self.init_translation_y,
+                            self.init_orientation, self.init_shear, self.init_sigma] for _ in range(8)]
+        initial_simplex[0][0] += int(initial_volume_factor * dims_margin)
+        initial_simplex[1][1] += int(initial_volume_factor * dims_margin)
+        initial_simplex[2][2] += int(initial_volume_factor * translation_margin)
+        initial_simplex[3][3] += int(initial_volume_factor * translation_margin)
+        initial_simplex[4][4] += initial_volume_factor * orientation_margin
+        initial_simplex[5][5] += initial_volume_factor * shear_margin
+        initial_simplex[6][6] += initial_volume_factor * sigma_margin
+        initial_simplex[7][0] -= int(initial_volume_factor * dims_margin)
+        initial_simplex[7][0] = max(0, initial_simplex[7][0])
+        initial_simplex[7][1] -= int(initial_volume_factor * dims_margin)
+        initial_simplex[7][1] = max(0, initial_simplex[7][1])
+        initial_simplex[7][2] -= int(initial_volume_factor * translation_margin)
+        initial_simplex[7][3] -= int(initial_volume_factor * translation_margin)
+        initial_simplex[7][4] -= initial_volume_factor * orientation_margin
+        initial_simplex[7][5] -= initial_volume_factor * shear_margin # TODO: think about this selection with Amir
+        return params, initial_simplex
 
 
 def optimize_grid(grid_dim_x, grid_dim_y, translation, orientation, shear, sigma, cropped_image, n, iterations_num=30):
     opt = _TrunksGridOptimization(grid_dim_x, grid_dim_y, translation, orientation, shear, sigma, cropped_image, n)
-    nm = NelderMead(opt.target, opt.get_params(), verbose=True)
+    params, initial_simplex = opt.get_params()
+    nm = NelderMead(opt.target, params, verbose=True)
+    nm.initialize(initial_simplex)
     optimized_grid_args, _ = nm.maximize(n_iter=iterations_num) # TODO: play with Nelder Mead parameters
     optimized_grid_dim_x, optimized_grid_dim_y, optimized_translation_x, optimized_translation_y, optimized_orientation, optimized_shear, optimized_sigma = optimized_grid_args
     optimized_grid = get_grid(optimized_grid_dim_x, optimized_grid_dim_y, (optimized_translation_x, optimized_translation_y), optimized_orientation, optimized_shear, n)
