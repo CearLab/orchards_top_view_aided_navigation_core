@@ -1,0 +1,6 @@
+<launch>
+    <arg name="ugv_poses_path" />
+    <node pkg="localization" type="aerial_global_updater.py" name="aerial_global_updater" output="screen">
+        <param name="ugv_poses_path" value="$(arg ugv_poses_path)" />
+  </node>
+</launch>
