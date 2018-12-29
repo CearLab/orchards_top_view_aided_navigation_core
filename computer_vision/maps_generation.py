@@ -1,21 +1,17 @@
 import cv2
 import numpy as np
 
-from framework import cv_utils
 from computer_vision import segmentation
-from computer_vision import trunks_detection
 
 
-def generate_cost_map(image, trunk_points_list, canopy_sigma, gaussian_scale_factor,
-                      gaussian_square_size_to_sigma_ratio, gaussian_circle_radius_to_sigma_ratio, trunk_radius,
-                      contours_margin_width=25, step_ratio=0.5, margin_color=200):
-    gaussians = trunks_detection.get_gaussians_grid_image(trunk_points_list, canopy_sigma, image.shape[1], image.shape[0],
-                                                          gaussian_scale_factor, gaussian_square_size_to_sigma_ratio, gaussian_circle_radius_to_sigma_ratio)
-    contours, contours_mask = segmentation.extract_canopy_contours(image, margin_width=contours_margin_width, margin_color=margin_color)
-    contours_mask = contours_mask / 255.0
-    contours_mask[contours_mask == 0] = step_ratio
-    cost_map = np.multiply(contours_mask, gaussians)
-    cost_map = cv_utils.draw_points_on_image(cost_map, trunk_points_list, color=1, radius=int(np.round(trunk_radius)))
+def generate_cost_map(image):
+    contours, contours_mask = segmentation.extract_canopy_contours(image)
+    cost_map = np.full((np.size(image, 0), np.size(image, 1)), fill_value=0, dtype=np.uint8)
+    cv2.drawContours(cost_map, contours, contourIdx=-1, color=255, thickness=-1)
+    cv2.drawContours(cost_map, contours, contourIdx=-1, color=150, thickness=90)
+    cost_map = np.minimum(contours_mask, cost_map)
+    cv2.drawContours(cost_map, contours, contourIdx=-1, color=50, thickness=28)
+    cost_map = cost_map / 255.0
     return cost_map
 
 
