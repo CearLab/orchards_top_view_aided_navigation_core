@@ -1,0 +1,13 @@
+<launch>
+    <arg name="ns" default="" />
+    <arg name="scans_and_poses_pickle_path" />
+    <arg name="odom_pickle_path" />
+    <arg name="video_path" />
+    <group ns="$(arg ns)">
+        <node pkg="localization" type="scan_pose_odom_playback.py" name="scan_pose_odom_playback" output="screen">
+            <param name="scans_and_poses_pickle_path" value="$(arg scans_and_poses_pickle_path)" />
+            <param name="odom_pickle_path" value="$(arg odom_pickle_path)" />
+            <param name="video_path" value="$(arg video_path)" />
+        </node>
+    </group>
+</launch>
