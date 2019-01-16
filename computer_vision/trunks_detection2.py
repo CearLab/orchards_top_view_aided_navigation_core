@@ -52,7 +52,7 @@ def estimate_grid_dimensions(rotated_centroids):
     for row in rotated_centroids:
         tree_locations = sorted([centroid[1] for centroid in row])
         tree_distances += list(np.array(tree_locations[1:]) - np.array(tree_locations[:-1]))
-    dim_y = np.median(tree_distances)
+    dim_y = np.percentile(tree_distances, q=30) # TODO: suspect this! this has changed!!! (consider changing the other medians as well)
     return dim_x, dim_y
 
 
@@ -147,53 +147,27 @@ def get_gaussians_grid_image(points_grid, sigma, image_width, image_height, scal
     return gaussians
     # TODO: this has basically become a visualization function - you can move it from here
 
-'''
-# This is the previous version:
-def _trunk_point_score(contours_mask, x, y, sigma):
+
+def tree_score(contours_mask, x, y, sigma):
     if not (0 <= x <= contours_mask.shape[1] and 0 <= y <= contours_mask.shape[0]):
-        return 0 # TODO: think if I want to punish and give negative reward
+        return -np.inf, -1
     reward_mask = contours_mask.astype(np.int16)
-    reward_mask[reward_mask == 0] = -255.0 # TODO: does this ruin my other (-1) thing?
+    reward_mask[reward_mask == 0] = -255.0
     gaussian = get_gaussian_on_image(x, y, sigma, contours_mask.shape[1], contours_mask.shape[0])
     filter_result = np.multiply(gaussian, reward_mask)
-    return np.sum(filter_result)
-'''
+    score = np.sum(filter_result)
+    normalized_score = score / (255.0 * np.sum(gaussian))
+    return score, normalized_score
 
-def _trunk_point_score(contours_mask, x, y, sigma):
-    if not (0 <= x <= contours_mask.shape[1] and 0 <= y <= contours_mask.shape[0]):
-        return 0 # TODO: think if I want to punish and give negative reward
-    reward_mask = contours_mask.astype(np.int16)
-    reward_mask[reward_mask == 0] = -255.0 # TODO: does this ruin my other (-1) thing?
-    gaussian = get_gaussian_on_image(x, y, sigma, contours_mask.shape[1], contours_mask.shape[0])
-    filter_result = np.multiply(gaussian, reward_mask)
-    return np.sum(filter_result) / (255.0 * np.sum(gaussian)) # TODO: think!
 
-# def _trunks_grid_score(contours_mask, points_grid, sigma, pattern=None):
-#     if pattern is not None:
-#         points_grid_np = np.empty(len(points_grid), dtype=object)
-#         points_grid_np[:] = points_grid
-#         points_grid_np.reshape(pattern.shape)
-#         # points_grid = np.array(points_grid)[pattern.reshape(len(points_grid), order='C') != -1].tolist() # TODO: is order='C' correct???????
-#         points_grid = points_grid_np.tolist()
-#     return np.mean([_trunk_point_score(contours_mask, x, y, sigma) for (x, y) in points_grid])
-
-def _trunks_grid_score(contours_mask, points_grid, sigma):
-    # from framework import cv_utils, viz_utils
-    # x = cv_utils.draw_points_on_image(cv2.cvtColor(contours_mask, cv2.COLOR_GRAY2BGR), points_grid, color=(255, 0, 0))
-    # viz_utils.show_image('ddd', x)
-    # print 'max = ', np.max([_trunk_point_score(contours_mask, x, y, sigma) for (x, y) in points_grid])
-    # print 'min = ', np.min([_trunk_point_score(contours_mask, x, y, sigma) for (x, y) in points_grid])
-    # print 'mean = ', np.mean([_trunk_point_score(contours_mask, x, y, sigma) for (x, y) in points_grid])
-    # print 'std = ', np.std([_trunk_point_score(contours_mask, x, y, sigma) for (x, y) in points_grid])
-    mean = np.mean([_trunk_point_score(contours_mask, x, y, sigma) for (x, y) in points_grid])
-    if mean < 0:
-        return -np.inf # TODO: -1 instead?
-    std = np.std([_trunk_point_score(contours_mask, x, y, sigma) for (x, y) in points_grid])
-    return mean - 0.1 * std
+def trees_pattern_normalized_score(contours_mask, points_grid, sigma):
+    normalized_scores = [tree_score(contours_mask, x, y, sigma)[1] for (x, y) in points_grid]
+    return np.mean(normalized_scores)
 
 
 class _TrunksGridOptimization(object):
-    def __init__(self, grid_dim_x, grid_dim_y, translation, orientation, shear, sigma, image, n, m, pattern):
+    def __init__(self, grid_dim_x, grid_dim_y, translation, orientation, shear, sigma, image, n, m, pattern,
+                 std_normalized_tree_scores_threshold=0.6):
         self.init_grid_dim_x = grid_dim_x
         self.init_grid_dim_y = grid_dim_y
         self.init_translation_x = translation[0]
@@ -205,37 +179,37 @@ class _TrunksGridOptimization(object):
         self.n = n
         self.m = m
         self.pattern = pattern
+        self.std_normalized_tree_scores_threshold = std_normalized_tree_scores_threshold
         self.steps = []
         self.width = image.shape[1]
         self.height = image.shape[0]
 
     def target(self, args):
+
+        # Get list of trunk points
         grid_dim_x, grid_dim_y, translation_x, translation_y, orientation, shear, sigma = args
         points_grid = get_grid(dim_x=grid_dim_x, dim_y=grid_dim_y, translation=(translation_x, translation_y), orientation=orientation, shear=shear, n=self.n, m=self.m)
-
         points_grid_np = np.empty(len(points_grid), dtype=object)
         points_grid_np[:] = points_grid
         points_grid_np = points_grid_np.reshape(self.pattern.shape, order='F')
-        # points_grid = np.array(points_grid)[pattern.reshape(len(points_grid), order='C') != -1].tolist() # TODO: is order='C' correct???????
-
-
         trunk_points_np = points_grid_np[self.pattern != -1]
         trunk_points = trunk_points_np.tolist()
-        no_trunk_points_np = points_grid_np[self.pattern == -1]
-        no_trunk_points = no_trunk_points_np.tolist()
 
-        print 'trunks'
-        trunks_score = _trunks_grid_score(self.contours_mask, trunk_points, sigma)
-        # print 'no-trunks'
-        # no_trunks_score = _trunks_grid_score(255 - self.contours_mask, no_trunk_points, sigma)
+        # Calculate score per tree
+        tree_scores = []
+        normalized_tree_scores = []
+        for (x, y) in trunk_points:
+            score, normalized_score = tree_score(self.contours_mask, x, y, sigma)
+            tree_scores.append(score)
+            normalized_tree_scores.append(normalized_score)
 
-        # trunks_proportion = 1.0 * len(trunk_points) / (len(trunk_points) + len(no_trunk_points))
-        # score = trunks_proportion * trunks_score + (1 - trunks_proportion) * no_trunks_score
-        score = trunks_score
-        self.steps.append((points_grid, score))
-
-        return score
-
+        # Calculate pattern score
+        std_normalized_score = np.std(normalized_tree_scores)
+        if std_normalized_score > self.std_normalized_tree_scores_threshold:
+            return -np.inf
+        pattern_score = np.mean(tree_scores)
+        self.steps.append((points_grid, pattern_score))
+        return pattern_score
 
     def get_params(self, dims_margin=60, translation_margin=60, orientation_margin=7, shear_margin=0.12, sigma_margin=50, initial_volume_factor=0.2): # TODO: play with margins
         params = OrderedDict()
@@ -263,20 +237,18 @@ class _TrunksGridOptimization(object):
         initial_simplex[7][2] -= int(initial_volume_factor * translation_margin)
         initial_simplex[7][3] -= int(initial_volume_factor * translation_margin)
         initial_simplex[7][4] -= initial_volume_factor * orientation_margin
-        initial_simplex[7][5] -= initial_volume_factor * shear_margin # TODO: think about this selection with Amir
+        initial_simplex[7][5] -= initial_volume_factor * shear_margin
         return params, initial_simplex
 
 
 def optimize_grid(grid_dim_x, grid_dim_y, translation, orientation, shear, sigma, cropped_image, pattern, iterations_num=30):
     opt = _TrunksGridOptimization(grid_dim_x, grid_dim_y, translation, orientation, shear, sigma, cropped_image, pattern.shape[1], pattern.shape[0], pattern)
-    # TODO: is it the correct order of dimensions (n and m, [0] and [1])?????????????
     params, initial_simplex = opt.get_params()
     nm = NelderMead(opt.target, params, verbose=True)
     nm.initialize(initial_simplex)
-    optimized_grid_args, _ = nm.maximize(n_iter=iterations_num) # TODO: play with Nelder Mead parameters
+    optimized_grid_args, _ = nm.maximize(n_iter=iterations_num)
     optimized_grid_dim_x, optimized_grid_dim_y, optimized_translation_x, optimized_translation_y, optimized_orientation, optimized_shear, optimized_sigma = optimized_grid_args
     optimized_grid = get_grid(optimized_grid_dim_x, optimized_grid_dim_y, (optimized_translation_x, optimized_translation_y), optimized_orientation, optimized_shear, pattern.shape[1], pattern.shape[0])
-    # TODO: is it the correct order of dimensions (n and m, [0] and [1])?????????????
     return optimized_grid, optimized_grid_args, opt.steps
 
 
@@ -314,7 +286,7 @@ def get_grid_scores_array(full_grid_np, image, sigma):
                 full_grid_scores_np[(i, j)] = np.nan
             else:
                 x, y = full_grid_np[(i, j)]
-                full_grid_scores_np[(i, j)] = _trunk_point_score(contours_mask, x, y, sigma)
+                full_grid_scores_np[(i, j)] = tree_score(contours_mask, x, y, sigma)[0]
     return full_grid_scores_np
 
 
@@ -328,10 +300,7 @@ def fit_pattern_on_grid(scores_array_np, pattern_np):
             sub_scores_array_np = scores_array_np[i : i + pattern_np.shape[0], j : j + pattern_np.shape[1]]
             if not np.all(np.logical_or(pattern_np == -1, np.logical_and(np.bitwise_not(np.isnan(sub_scores_array_np)), pattern_np == 1))):
                 continue
-            # sub_scores_array_np = np.where(pattern_np == 1, sub_scores_array_np, np.full(pattern_np.shape, fill_value=0))
-            # if np.any(np.isnan(sub_scores_array_np)):
-            #     continue
-            mean_score = np.mean(np.multiply(np.nan_to_num(sub_scores_array_np), pattern_np)) # TODO: consider here the same trick with - alpha * std...
+            mean_score = np.mean(np.multiply(np.nan_to_num(sub_scores_array_np), pattern_np))
             if mean_score > max_mean_scores:
                 max_mean_scores = mean_score
                 maximizing_origin = (i, j)
