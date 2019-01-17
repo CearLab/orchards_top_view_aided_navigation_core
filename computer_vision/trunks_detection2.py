@@ -160,9 +160,27 @@ def tree_score(contours_mask, x, y, sigma):
     return score, normalized_score
 
 
-def trees_pattern_normalized_score(contours_mask, points_grid, sigma):
-    normalized_scores = [tree_score(contours_mask, x, y, sigma)[1] for (x, y) in points_grid]
-    return np.mean(normalized_scores)
+def get_tree_scores_stats(contours_mask, points_grid, sigma):
+    tree_scores = []
+    normalized_tree_scores = []
+    for (x, y) in points_grid:
+        score, normalized_score = tree_score(contours_mask, x, y, sigma)
+        tree_scores.append(score)
+        normalized_tree_scores.append(normalized_score)
+    stats = {'mean_score': np.mean(tree_scores),
+             'std_score': np.std(tree_scores),
+             'median_score': np.median(tree_scores),
+             'mean_normalized_score': np.mean(normalized_tree_scores),
+             'std_normalized_score': np.std(normalized_tree_scores),
+             'median_normalized_score': np.median(normalized_tree_scores)}
+    return stats
+
+
+def get_trees_confidence(contours_mask, trunk_coordinates_np, no_trunk_coordinates_np, sigma):
+    trunk_points_list = filter(lambda v: v==v, trunk_coordinates_np)
+    no_trunk_points_list = filter(lambda v: v==v, no_trunk_coordinates_np)
+    return np.mean([tree_score(contours_mask, x, y, sigma)[1] for (x, y) in trunk_points_list] +
+                   [tree_score(contours_mask, x, y, sigma)[1] * (-1) for (x, y) in no_trunk_points_list])
 
 
 class _TrunksGridOptimization(object):
@@ -307,11 +325,11 @@ def fit_pattern_on_grid(scores_array_np, pattern_np):
     return maximizing_origin, max_mean_scores
 
 
-def refine_trunk_locations(image, trunk_coordinates_np, sigma, dim_x, dim_y, samples_along_axis=30, window_shift=50):
+def refine_trunk_locations(image, trunk_coordinates_np, sigma, dim_x, dim_y, samples_along_axis=14):
     _, contours_mask = segmentation.extract_canopy_contours(image)
     refined_trunk_locations_df = pd.DataFrame(index=range(trunk_coordinates_np.shape[0]), columns=range(trunk_coordinates_np.shape[1]))
     window_size = int(np.max([dim_x, dim_y]) * 1.1)
-    circle_radius = int(sigma * 1.2)
+    window_shift = int(sigma / 3)
     for i in range(trunk_coordinates_np.shape[0]):
         for j in range(trunk_coordinates_np.shape[1]):
             if np.any(np.isnan(trunk_coordinates_np[(i, j)])):
@@ -322,9 +340,7 @@ def refine_trunk_locations(image, trunk_coordinates_np, sigma, dim_x, dim_y, sam
             for candidate_x, candidate_y in itertools.product(np.round(np.linspace(x - window_shift, x + window_shift, num=samples_along_axis)),
                                                               np.round(np.linspace(y - window_shift, y + window_shift, num=samples_along_axis))):
                 canopy_patch, _, _ = cv_utils.crop_region(contours_mask, candidate_x, candidate_y, window_size, window_size)
-                circle_mask = np.full(canopy_patch.shape, fill_value=0, dtype=np.uint8)
-                circle_mask = cv2.circle(circle_mask, center=(canopy_patch.shape[1] / 2, canopy_patch.shape[0] / 2), radius=circle_radius, color=255, thickness=-1)
-                score = np.sum(cv2.bitwise_and(canopy_patch, canopy_patch, mask=circle_mask))
+                score, _ = tree_score(canopy_patch, canopy_patch.shape[1] / 2, canopy_patch.shape[0] / 2, sigma)
                 if score > max_score:
                     max_score = score
                     best_x, best_y = candidate_x, candidate_y
