@@ -25,7 +25,7 @@ def estimate_rows_orientation(image, search_step=0.5, min_distance_between_peaks
 
 
 def find_tree_centroids(image, correction_angle):
-    rotation_mat = cv2.getRotationMatrix2D((image.shape[1] / 2, image.shape[0] / 2), correction_angle, scale=1.0)  # TODO: verify order of coordinates
+    rotation_mat = cv2.getRotationMatrix2D((image.shape[1] / 2, image.shape[0] / 2), correction_angle, scale=1.0)
     rotated_image = cv2.warpAffine(image, rotation_mat, (image.shape[1], image.shape[0]))
     rotated_centroids = []
     _, contours_mask = segmentation.extract_canopy_contours(rotated_image)
@@ -39,7 +39,7 @@ def find_tree_centroids(image, correction_angle):
         rotated_centroids.append([(int(np.mean([tree_row_left_limit, tree_tow_right_limit])), tree_location) for tree_location in tree_locations_in_row])
         slices_and_cumsums.append((tree_row, row_sums_vector))
     vertical_rows_centroids_np = np.float32(list(itertools.chain.from_iterable(rotated_centroids))).reshape(-1, 1, 2)
-    rotation_mat = np.insert(cv2.getRotationMatrix2D((image.shape[1] / 2, image.shape[0] / 2), correction_angle * (-1), scale=1.0), [2], [0, 0, 1], axis=0)  # TODO: verify coordinates order
+    rotation_mat = np.insert(cv2.getRotationMatrix2D((image.shape[1] / 2, image.shape[0] / 2), correction_angle * (-1), scale=1.0), [2], [0, 0, 1], axis=0)
     centroids_np = cv2.perspectiveTransform(vertical_rows_centroids_np, rotation_mat)
     centroids = [tuple(elem) for elem in centroids_np[:, 0, :].tolist()]
     return centroids, rotated_centroids, aisle_centers, slices_and_cumsums
@@ -52,7 +52,7 @@ def estimate_grid_dimensions(rotated_centroids):
     for row in rotated_centroids:
         tree_locations = sorted([centroid[1] for centroid in row])
         tree_distances += list(np.array(tree_locations[1:]) - np.array(tree_locations[:-1]))
-    dim_y = np.percentile(tree_distances, q=30) # TODO: suspect this! this has changed!!! (consider changing the other medians as well)
+    dim_y = np.percentile(tree_distances, q=30)
     return dim_x, dim_y
 
 
@@ -69,7 +69,7 @@ def estimate_shear(rotated_centoids):
         data_np = np.array(data)
         data_np = data_np[abs(data_np - np.median(data_np)) < m * np.std(data_np)]
         return data_np.tolist()
-    thetas_filtered = reject_outliers(thetas, m=1.5) # TODO: perhaps it's too agressive and I'm losing inliers!
+    thetas_filtered = reject_outliers(thetas, m=1.5)
     drift_vectors = [drift_vectors[index] for index in [thetas.index(theta) for theta in thetas_filtered]]
     shear = np.sin(np.median(thetas_filtered))
     return shear, drift_vectors
@@ -83,7 +83,7 @@ def get_essential_grid(dim_x, dim_y, shear, orientation, n, m=None):
     shear_mat = np.float32([[1, 0, 0], [shear, 1, 0], [0, 0, 1]])
     transformed_nodes_np = cv2.perspectiveTransform(nodes_np, shear_mat)
     rotation_center = tuple(np.mean(transformed_nodes_np, axis=0)[0])
-    rotation_mat = np.insert(cv2.getRotationMatrix2D(rotation_center, orientation, scale=1.0), [2], [0, 0, 1], axis=0) # TODO: verify coordinates order
+    rotation_mat = np.insert(cv2.getRotationMatrix2D(rotation_center, orientation, scale=1.0), [2], [0, 0, 1], axis=0)
     transformed_nodes_np = cv2.perspectiveTransform(transformed_nodes_np, rotation_mat)
     transformed_nodes = [tuple(elem) for elem in transformed_nodes_np[:, 0, :].tolist()]
     return transformed_nodes
@@ -96,7 +96,7 @@ def find_min_mse_position(centroids, grid, image_width, image_height):
     optimal_grid = None
     for candidate_translation in centroids:
         candidate_grid_np = np.array(grid) - grid[0] + candidate_translation
-        if np.any(candidate_grid_np < 0) or np.any(candidate_grid_np[:,0] >= image_height) or np.any(candidate_grid_np[:,1] >= image_width): # TODO: verify this! potential logic bug which won't fail!!!!!!!!!!!
+        if np.any(candidate_grid_np < 0) or np.any(candidate_grid_np[:,0] >= image_height) or np.any(candidate_grid_np[:,1] >= image_width):
             continue
         error = 0
         drift_vectors = []
@@ -115,7 +115,7 @@ def find_min_mse_position(centroids, grid, image_width, image_height):
 def get_grid(dim_x, dim_y, translation, orientation, shear, n, m=None):
     essential_grid = get_essential_grid(dim_x, dim_y, shear, orientation, n, m)
     essential_grid_np = np.float32(essential_grid).reshape(-1, 1, 2)
-    translation_mat = np.float32([[1, 0, translation[0]], [0, 1, translation[1]], [0, 0, 1]]) # TODO: verify correctenss!
+    translation_mat = np.float32([[1, 0, translation[0]], [0, 1, translation[1]], [0, 0, 1]])
     transformed_grid_np = cv2.perspectiveTransform(essential_grid_np, translation_mat)
     transformed_grid = [tuple(elem) for elem in transformed_grid_np[:, 0, :].tolist()]
     return transformed_grid
@@ -125,8 +125,8 @@ def get_gaussian_on_image(mu_x, mu_y, sigma, image_width, image_height, square_s
     gaussian_image = np.full((image_height, image_width), fill_value=0, dtype=np.float64)
     square_size = square_size_to_sigma_ratio * sigma
     circle_radius = circle_radius_to_sigma_ratio * sigma
-    x_start, x_end = max(0, int(mu_x - square_size)), min(image_width, int(mu_x + square_size)) # TODO: width
-    y_start, y_end = max(0, int(mu_y - square_size)), min(image_height, int(mu_y + square_size)) # TODO: height
+    x_start, x_end = max(0, int(mu_x - square_size)), min(image_width, int(mu_x + square_size))
+    y_start, y_end = max(0, int(mu_y - square_size)), min(image_height, int(mu_y + square_size))
     x, y = np.meshgrid(np.arange(x_start, x_end), np.arange(y_start, y_end))
     squre_gaussian = np.exp(-((x - mu_x) ** 2 + (y - mu_y) ** 2) / (2.0 * sigma ** 2))
     circle_mask = cv2.circle(img=np.full(squre_gaussian.shape, fill_value=0.0, dtype=np.float64),
@@ -227,12 +227,12 @@ class _TrunksGridOptimization(object):
         self.steps.append((points_grid, pattern_score, sigma))
         return pattern_score
 
-    def get_params(self, dims_margin=60, translation_margin=60, orientation_margin=7, shear_margin=0.12, sigma_margin=50, initial_volume_factor=0.2): # TODO: play with margins
+    def get_params(self, dims_margin=60, translation_margin=60, orientation_margin=7, shear_margin=0.12, sigma_margin=50, initial_volume_factor=0.2):
         params = OrderedDict()
         params['grid_dim_x'] = ['integer', (max(0, self.init_grid_dim_x - dims_margin), self.init_grid_dim_x + dims_margin)]
         params['grid_dim_y'] = ['integer', (max(0, self.init_grid_dim_y - dims_margin), self.init_grid_dim_y + dims_margin)]
-        params['translation_x'] = ['integer', (self.init_translation_x - translation_margin, min(self.width, self.init_translation_x + translation_margin))] # TODO: this was changed (max removed) - suspect this line
-        params['translation_y'] = ['integer', (self.init_translation_y - translation_margin, min(self.height, self.init_translation_y + translation_margin))] # TODO: this was changed (max removed) - suspect this line
+        params['translation_x'] = ['integer', (self.init_translation_x - translation_margin, min(self.width, self.init_translation_x + translation_margin))]
+        params['translation_y'] = ['integer', (self.init_translation_y - translation_margin, min(self.height, self.init_translation_y + translation_margin))]
         params['orientation'] = ['real', (self.init_orientation - orientation_margin, self.init_orientation + orientation_margin)]
         params['shear'] = ['real', (self.init_shear - shear_margin, self.init_shear + shear_margin)]
         params['sigma'] = ['real', (max(0, self.init_sigma - sigma_margin), self.init_sigma + sigma_margin)]
@@ -311,7 +311,7 @@ def fit_pattern_on_grid(scores_array_np, pattern_np):
     maximizing_origin = None
     for i in range(scores_array_np.shape[0]):
         for j in range(scores_array_np.shape[1]):
-            if i + pattern_np.shape[0] > scores_array_np.shape[0] or j + pattern_np.shape[1] > scores_array_np.shape[1]: # TODO: check!!!
+            if i + pattern_np.shape[0] > scores_array_np.shape[0] or j + pattern_np.shape[1] > scores_array_np.shape[1]:
                 continue
             sub_scores_array_np = scores_array_np[i : i + pattern_np.shape[0], j : j + pattern_np.shape[1]]
             if not np.all(np.logical_or(pattern_np != 1, np.logical_and(np.bitwise_not(np.isnan(sub_scores_array_np)), pattern_np == 1))):
