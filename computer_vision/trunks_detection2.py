@@ -141,11 +141,9 @@ def get_gaussians_grid_image(points_grid, sigma, image_width, image_height, scal
     for x, y in points_grid:
         gaussian = scale_factor * get_gaussian_on_image(x, y, sigma, image_width, image_height,
                                                         square_size_to_sigma_ratio, circle_radius_to_sigma_ratio)
-        # gaussians = np.add(gaussians, gaussian) # TODO: verify that it is okay to change this!!!!
         gaussians = np.maximum(gaussians, gaussian)
     gaussians = np.clip(gaussians, a_min=0, a_max=1)
     return gaussians
-    # TODO: this has basically become a visualization function - you can move it from here
 
 
 def tree_score(contours_mask, x, y, sigma):
@@ -226,7 +224,7 @@ class _TrunksGridOptimization(object):
         if std_normalized_score > self.std_normalized_tree_scores_threshold:
             return -np.inf
         pattern_score = np.mean(tree_scores)
-        self.steps.append((points_grid, pattern_score))
+        self.steps.append((points_grid, pattern_score, sigma))
         return pattern_score
 
     def get_params(self, dims_margin=60, translation_margin=60, orientation_margin=7, shear_margin=0.12, sigma_margin=50, initial_volume_factor=0.2): # TODO: play with margins
@@ -316,7 +314,7 @@ def fit_pattern_on_grid(scores_array_np, pattern_np):
             if i + pattern_np.shape[0] > scores_array_np.shape[0] or j + pattern_np.shape[1] > scores_array_np.shape[1]: # TODO: check!!!
                 continue
             sub_scores_array_np = scores_array_np[i : i + pattern_np.shape[0], j : j + pattern_np.shape[1]]
-            if not np.all(np.logical_or(pattern_np == -1, np.logical_and(np.bitwise_not(np.isnan(sub_scores_array_np)), pattern_np == 1))):
+            if not np.all(np.logical_or(pattern_np != 1, np.logical_and(np.bitwise_not(np.isnan(sub_scores_array_np)), pattern_np == 1))):
                 continue
             mean_score = np.mean(np.multiply(np.nan_to_num(sub_scores_array_np), pattern_np))
             if mean_score > max_mean_scores:
