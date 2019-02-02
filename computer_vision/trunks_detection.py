@@ -11,12 +11,12 @@ from nelder_mead import NelderMead
 
 
 def estimate_rows_orientation(image, search_step=0.5, min_distance_between_peaks=200, min_peak_width=50):
-    _, contours_mask = segmentation.extract_canopy_contours(image)
+    _, canopies_mask = segmentation.extract_canopy_contours(image)
     angles_to_scores = {}
     for correction_angle in np.arange(start=-90, stop=90, step=search_step):
         rotation_mat = cv2.getRotationMatrix2D((image.shape[1] / 2, image.shape[0] / 2), correction_angle, scale=1.0)
-        rotated_contours_mask = cv2.warpAffine(contours_mask, rotation_mat, (contours_mask.shape[1], contours_mask.shape[0]))
-        column_sums_vector = np.sum(rotated_contours_mask, axis=0)
+        rotated_canopies_mask = cv2.warpAffine(canopies_mask, rotation_mat, (canopies_mask.shape[1], canopies_mask.shape[0]))
+        column_sums_vector = np.sum(rotated_canopies_mask, axis=0)
         minima_indices, _ = find_peaks(column_sums_vector * (-1), distance=min_distance_between_peaks, width=min_peak_width)
         minima_values = [column_sums_vector[index] for index in minima_indices]
         mean_minima = np.mean(minima_values) if len(minima_values) > 0 else 1e30
@@ -28,12 +28,12 @@ def find_tree_centroids(image, correction_angle):
     rotation_mat = cv2.getRotationMatrix2D((image.shape[1] / 2, image.shape[0] / 2), correction_angle, scale=1.0)
     rotated_image = cv2.warpAffine(image, rotation_mat, (image.shape[1], image.shape[0]))
     rotated_centroids = []
-    _, contours_mask = segmentation.extract_canopy_contours(rotated_image)
-    column_sums_vector = np.sum(contours_mask, axis=0)
+    _, canopies_mask = segmentation.extract_canopy_contours(rotated_image)
+    column_sums_vector = np.sum(canopies_mask, axis=0)
     aisle_centers, _ = find_peaks(column_sums_vector * (-1), distance=200, width=50)
     slices_and_cumsums = []
     for tree_row_left_limit, tree_tow_right_limit in zip(aisle_centers[:-1], aisle_centers[1:]):
-        tree_row = contours_mask[:, tree_row_left_limit:tree_tow_right_limit]
+        tree_row = canopies_mask[:, tree_row_left_limit:tree_tow_right_limit]
         row_sums_vector = np.sum(tree_row, axis=1)
         tree_locations_in_row, _ = find_peaks(row_sums_vector, distance=160, width=30)
         rotated_centroids.append([(int(np.mean([tree_row_left_limit, tree_tow_right_limit])), tree_location) for tree_location in tree_locations_in_row])
@@ -146,23 +146,23 @@ def get_gaussians_grid_image(points_grid, sigma, image_width, image_height, scal
     return gaussians
 
 
-def tree_score(contours_mask, x, y, sigma):
-    if not (0 <= x <= contours_mask.shape[1] and 0 <= y <= contours_mask.shape[0]):
+def tree_score(canopies_mask, x, y, sigma):
+    if not (0 <= x <= canopies_mask.shape[1] and 0 <= y <= canopies_mask.shape[0]):
         return -np.inf, -1
-    reward_mask = contours_mask.astype(np.int16)
+    reward_mask = canopies_mask.astype(np.int16)
     reward_mask[reward_mask == 0] = -255.0
-    gaussian = get_gaussian_on_image(x, y, sigma, contours_mask.shape[1], contours_mask.shape[0])
+    gaussian = get_gaussian_on_image(x, y, sigma, canopies_mask.shape[1], canopies_mask.shape[0])
     filter_result = np.multiply(gaussian, reward_mask)
     score = np.sum(filter_result)
     normalized_score = score / (255.0 * np.sum(gaussian))
     return score, normalized_score
 
 
-def get_tree_scores_stats(contours_mask, points_grid, sigma):
+def get_tree_scores_stats(canopies_mask, points_grid, sigma):
     tree_scores = []
     normalized_tree_scores = []
     for (x, y) in points_grid:
-        score, normalized_score = tree_score(contours_mask, x, y, sigma)
+        score, normalized_score = tree_score(canopies_mask, x, y, sigma)
         tree_scores.append(score)
         normalized_tree_scores.append(normalized_score)
     stats = {'mean_score': np.mean(tree_scores),
@@ -174,11 +174,11 @@ def get_tree_scores_stats(contours_mask, points_grid, sigma):
     return stats
 
 
-def get_trees_confidence(contours_mask, trunk_coordinates_np, no_trunk_coordinates_np, sigma):
+def get_trees_confidence(canopies_mask, trunk_coordinates_np, no_trunk_coordinates_np, sigma):
     trunk_points_list = filter(lambda v: v==v, trunk_coordinates_np)
     no_trunk_points_list = filter(lambda v: v==v, no_trunk_coordinates_np)
-    return np.mean([tree_score(contours_mask, x, y, sigma)[1] for (x, y) in trunk_points_list] +
-                   [tree_score(contours_mask, x, y, sigma)[1] * (-1) for (x, y) in no_trunk_points_list])
+    return np.mean([tree_score(canopies_mask, x, y, sigma)[1] for (x, y) in trunk_points_list] +
+                   [tree_score(canopies_mask, x, y, sigma)[1] * (-1) for (x, y) in no_trunk_points_list])
 
 
 class _TrunksGridOptimization(object):
@@ -191,7 +191,7 @@ class _TrunksGridOptimization(object):
         self.init_orientation = orientation
         self.init_shear = shear
         self.init_sigma = sigma
-        self.contours_mask = segmentation.extract_canopy_contours(image)[1]
+        self.canopies_mask = segmentation.extract_canopy_contours(image)[1]
         self.n = n
         self.m = m
         self.pattern = pattern
@@ -215,7 +215,7 @@ class _TrunksGridOptimization(object):
         tree_scores = []
         normalized_tree_scores = []
         for (x, y) in trunk_points:
-            score, normalized_score = tree_score(self.contours_mask, x, y, sigma)
+            score, normalized_score = tree_score(self.canopies_mask, x, y, sigma)
             tree_scores.append(score)
             normalized_tree_scores.append(normalized_score)
 
@@ -294,7 +294,7 @@ def extrapolate_full_grid(grid_dim_x, grid_dim_y, orientation, shear, base_grid_
 
 
 def get_grid_scores_array(full_grid_np, image, sigma):
-    _, contours_mask = segmentation.extract_canopy_contours(image)
+    _, canopies_mask = segmentation.extract_canopy_contours(image)
     full_grid_scores_np = np.empty(full_grid_np.shape)
     for i in range(full_grid_np.shape[0]):
         for j in range((full_grid_np.shape[1])):
@@ -302,7 +302,7 @@ def get_grid_scores_array(full_grid_np, image, sigma):
                 full_grid_scores_np[(i, j)] = np.nan
             else:
                 x, y = full_grid_np[(i, j)]
-                full_grid_scores_np[(i, j)] = tree_score(contours_mask, x, y, sigma)[0]
+                full_grid_scores_np[(i, j)] = tree_score(canopies_mask, x, y, sigma)[0]
     return full_grid_scores_np
 
 
@@ -324,7 +324,7 @@ def fit_pattern_on_grid(scores_array_np, pattern_np):
 
 
 def refine_trunk_locations(image, trunk_coordinates_np, sigma, dim_x, dim_y, samples_along_axis=14):
-    _, contours_mask = segmentation.extract_canopy_contours(image)
+    _, canopies_mask = segmentation.extract_canopy_contours(image)
     refined_trunk_locations_df = pd.DataFrame(index=range(trunk_coordinates_np.shape[0]), columns=range(trunk_coordinates_np.shape[1]))
     window_size = int(np.max([dim_x, dim_y]) * 1.1)
     window_shift = int(sigma / 3)
@@ -337,7 +337,7 @@ def refine_trunk_locations(image, trunk_coordinates_np, sigma, dim_x, dim_y, sam
             best_x, best_y = None, None
             for candidate_x, candidate_y in itertools.product(np.round(np.linspace(x - window_shift, x + window_shift, num=samples_along_axis)),
                                                               np.round(np.linspace(y - window_shift, y + window_shift, num=samples_along_axis))):
-                canopy_patch, _, _ = cv_utils.crop_region(contours_mask, candidate_x, candidate_y, window_size, window_size)
+                canopy_patch, _, _ = cv_utils.crop_region(canopies_mask, candidate_x, candidate_y, window_size, window_size)
                 score, _ = tree_score(canopy_patch, canopy_patch.shape[1] / 2, canopy_patch.shape[0] / 2, sigma)
                 if score > max_score:
                     max_score = score

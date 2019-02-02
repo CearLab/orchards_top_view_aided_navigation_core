@@ -5,11 +5,11 @@ from computer_vision import segmentation
 
 
 def generate_cost_map(image):
-    contours, contours_mask = segmentation.extract_canopy_contours(image)
+    contours, canopies_mask = segmentation.extract_canopy_contours(image)
     cost_map = np.full((np.size(image, 0), np.size(image, 1)), fill_value=0, dtype=np.uint8)
     cv2.drawContours(cost_map, contours, contourIdx=-1, color=255, thickness=-1)
     cv2.drawContours(cost_map, contours, contourIdx=-1, color=200, thickness=90)
-    cost_map = np.minimum(contours_mask, cost_map)
+    cost_map = np.minimum(canopies_mask, cost_map)
     cv2.drawContours(cost_map, contours, contourIdx=-1, color=120, thickness=20)
     external_ring = np.full((np.size(image, 0), np.size(image, 1)), fill_value=0, dtype=np.uint8)
     cv2.drawContours(external_ring, contours, contourIdx=-1, color=50, thickness=65)
