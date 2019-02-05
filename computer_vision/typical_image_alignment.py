@@ -1,7 +1,9 @@
 import cv2
 import numpy as np
 
-def orb_based_registration(image, baseline_image, max_features=500, good_match_percent=0.15):
+from framework import cv_utils
+
+def orb_based_registration(image, baseline_image, max_features=500, good_match_percent=0.15, transformation_type='affine'):
 
     # Convert images to grayscale
     image_gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -33,12 +35,8 @@ def orb_based_registration(image, baseline_image, max_features=500, good_match_p
         points[i, :] = keypoints[match.queryIdx].pt
         points_baseline[i, :] = keypoints_baseline[match.trainIdx].pt
 
-    # Find homography
-    h, mask = cv2.findHomography(points, points_baseline, cv2.RANSAC)
-
-    # Use homography
-    height, width = baseline_image.shape[0], baseline_image.shape[1]
-    registered_image = cv2.warpPerspective(image, h, (width, height))
+    # Warp image
+    registered_image, _ = cv_utils.warp_image(image, points, points_baseline, transformation_type)
 
     return registered_image, matches_image
 
