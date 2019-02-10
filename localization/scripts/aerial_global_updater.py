@@ -23,13 +23,15 @@ class AerialGlobalUpdater(object):
         rospy.init_node('aerial_global_updater')
         self.sync_signal_count = 0
         self.imu_messages = []
-        ugv_poses_path = rospy.get_param('~ugv_poses_path')
-        with open(ugv_poses_path) as f:
-            self.ugv_poses = json.load(f, object_pairs_hook=OrderedDict)
         self.update_idx = 0
         self.odom_message = None
-        self.init_pose = self.ugv_poses.values()[0]
         self.last_sync_time = -np.inf
+        self.relevant_update_index = rospy.get_param('~relevant_update_index')
+        ugv_poses_path = rospy.get_param('~ugv_poses_path')
+        self.resolution = rospy.get_param('~resolution')
+        with open(ugv_poses_path) as f:
+            self.ugv_poses = json.load(f, object_pairs_hook=OrderedDict)
+        self.init_pose = self.ugv_poses.values()[0]
         rospy.Subscriber('/bluetooth_teleop/joy', Joy, self.joy_callback)
         rospy.Subscriber('/microstrain/imu/data', Imu, self.imu_callback)
         rospy.Subscriber('/odometry/filtered', Odometry, self.odom_callback)
@@ -47,12 +49,15 @@ class AerialGlobalUpdater(object):
                 self.update_idx += 1
                 rospy.loginfo('Received first sync (origin)')
                 return
+            if self.relevant_update_index != self.update_idx:
+                rospy.loginfo('Identified joystick press related to irrelevant update index #%d ==> ignoring' % self.update_idx)
+                self.update_idx += 1
+                return
             pose_key = self.ugv_poses.keys()[self.update_idx]
             pose = self.ugv_poses[pose_key]
-            dx = (pose[0] - self.init_pose[0]) * 0.0125 # TODO: oreder and scale!!!!!!!
-            dy = (pose[1] - self.init_pose[1]) * 0.0125
+            dx = (pose[0] - self.init_pose[0]) * self.resolution # TODO: order???
+            dy = (pose[1] - self.init_pose[1]) * self.resolution
             alpha = (np.pi/2 - self.init_yaw) * (-1)
-            print ('(dx, dy) = (%f, %f)' % (dx, dy))
             x = dx * np.cos(alpha) - dy * np.sin(alpha) # TODO: scale, check alpha, check x and y on image (might need to switch x and y...)
             y = dx * np.sin(alpha) + dy * np.cos(alpha)
             odom_message = self.odom_message
@@ -62,7 +67,7 @@ class AerialGlobalUpdater(object):
             pose_message.pose = odom_message.pose
             pose_message.pose.pose.position.x = x
             pose_message.pose.pose.position.y = y
-            rospy.loginfo('Performing global update #%d from image %s to pose (%f, %f)' % (self.update_idx, pose_key, x, y))
+            rospy.loginfo('Performing global update from image %s to pose (%f, %f)' % (pose_key, x, y))
             self.update_idx += 1
             self.pose_pub.publish(pose_message)
 
