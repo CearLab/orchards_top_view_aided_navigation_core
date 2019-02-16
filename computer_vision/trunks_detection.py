@@ -12,16 +12,19 @@ from nelder_mead import NelderMead
 
 def estimate_rows_orientation(image, search_step=0.5, min_distance_between_peaks=200, min_peak_width=50):
     _, canopies_mask = segmentation.extract_canopy_contours(image)
-    angles_to_scores = {}
+    angle_to_score = {}
+    angle_to_sum_vector = {}
     for correction_angle in np.arange(start=-90, stop=90, step=search_step):
         rotation_mat = cv2.getRotationMatrix2D((image.shape[1] / 2, image.shape[0] / 2), correction_angle, scale=1.0)
         rotated_canopies_mask = cv2.warpAffine(canopies_mask, rotation_mat, (canopies_mask.shape[1], canopies_mask.shape[0]))
         column_sums_vector = np.sum(rotated_canopies_mask, axis=0)
+        angle_to_sum_vector[correction_angle] = column_sums_vector
         minima_indices, _ = find_peaks(column_sums_vector * (-1), distance=min_distance_between_peaks, width=min_peak_width)
         minima_values = [column_sums_vector[index] for index in minima_indices]
-        mean_minima = np.mean(minima_values) if len(minima_values) > 0 else 1e30
-        angles_to_scores[correction_angle] = mean_minima
-    return [key for key, value in sorted(angles_to_scores.iteritems(), key=lambda (k, v): v, reverse=False)][0] * (-1)
+        minima_mean = np.mean(minima_values) if len(minima_values) > 0 else 1e30
+        angle_to_score[correction_angle] = minima_mean
+    orientation = [key for key, value in sorted(angle_to_score.iteritems(), key=lambda (k, v): v, reverse=False)][0] * (-1)
+    return orientation, angle_to_score, angle_to_sum_vector
 
 
 def find_tree_centroids(image, correction_angle):
@@ -31,18 +34,18 @@ def find_tree_centroids(image, correction_angle):
     _, canopies_mask = segmentation.extract_canopy_contours(rotated_image)
     column_sums_vector = np.sum(canopies_mask, axis=0)
     aisle_centers, _ = find_peaks(column_sums_vector * (-1), distance=200, width=50)
-    slices_and_cumsums = []
+    slices_and_sums_vectors = []
     for tree_row_left_limit, tree_tow_right_limit in zip(aisle_centers[:-1], aisle_centers[1:]):
         tree_row = canopies_mask[:, tree_row_left_limit:tree_tow_right_limit]
         row_sums_vector = np.sum(tree_row, axis=1)
         tree_locations_in_row, _ = find_peaks(row_sums_vector, distance=160, width=30)
         rotated_centroids.append([(int(np.mean([tree_row_left_limit, tree_tow_right_limit])), tree_location) for tree_location in tree_locations_in_row])
-        slices_and_cumsums.append((tree_row, row_sums_vector))
+        slices_and_sums_vectors.append((tree_row, row_sums_vector))
     vertical_rows_centroids_np = np.float32(list(itertools.chain.from_iterable(rotated_centroids))).reshape(-1, 1, 2)
     rotation_mat = np.insert(cv2.getRotationMatrix2D((image.shape[1] / 2, image.shape[0] / 2), correction_angle * (-1), scale=1.0), [2], [0, 0, 1], axis=0)
     centroids_np = cv2.perspectiveTransform(vertical_rows_centroids_np, rotation_mat)
     centroids = [tuple(elem) for elem in centroids_np[:, 0, :].tolist()]
-    return centroids, rotated_centroids, aisle_centers, slices_and_cumsums
+    return centroids, rotated_centroids, aisle_centers, slices_and_sums_vectors, column_sums_vector
 
 
 def estimate_grid_dimensions(rotated_centroids):
@@ -70,9 +73,9 @@ def estimate_shear(rotated_centoids):
         data_np = data_np[abs(data_np - np.median(data_np)) < m * np.std(data_np)]
         return data_np.tolist()
     thetas_filtered = reject_outliers(thetas, m=1.5)
-    drift_vectors = [drift_vectors[index] for index in [thetas.index(theta) for theta in thetas_filtered]]
+    drift_vectors_filtered = [drift_vectors[index] for index in [thetas.index(theta) for theta in thetas_filtered]]
     shear = np.sin(np.median(thetas_filtered))
-    return shear, drift_vectors
+    return shear, drift_vectors, drift_vectors_filtered
 
 
 def get_essential_grid(dim_x, dim_y, shear, orientation, n, m=None):
