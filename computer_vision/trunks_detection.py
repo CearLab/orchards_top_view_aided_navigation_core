@@ -34,18 +34,18 @@ def find_tree_centroids(image, correction_angle):
     _, canopies_mask = segmentation.extract_canopy_contours(rotated_image)
     column_sums_vector = np.sum(canopies_mask, axis=0)
     aisle_centers, _ = find_peaks(column_sums_vector * (-1), distance=200, width=50)
-    slices_and_sums_vectors = []
+    slices_sum_vectors_and_trees = []
     for tree_row_left_limit, tree_tow_right_limit in zip(aisle_centers[:-1], aisle_centers[1:]):
         tree_row = canopies_mask[:, tree_row_left_limit:tree_tow_right_limit]
         row_sums_vector = np.sum(tree_row, axis=1)
         tree_locations_in_row, _ = find_peaks(row_sums_vector, distance=160, width=30)
         rotated_centroids.append([(int(np.mean([tree_row_left_limit, tree_tow_right_limit])), tree_location) for tree_location in tree_locations_in_row])
-        slices_and_sums_vectors.append((tree_row, row_sums_vector))
+        slices_sum_vectors_and_trees.append((tree_row, row_sums_vector, tree_locations_in_row))
     vertical_rows_centroids_np = np.float32(list(itertools.chain.from_iterable(rotated_centroids))).reshape(-1, 1, 2)
     rotation_mat = np.insert(cv2.getRotationMatrix2D((image.shape[1] / 2, image.shape[0] / 2), correction_angle * (-1), scale=1.0), [2], [0, 0, 1], axis=0)
     centroids_np = cv2.perspectiveTransform(vertical_rows_centroids_np, rotation_mat)
     centroids = [tuple(elem) for elem in centroids_np[:, 0, :].tolist()]
-    return centroids, rotated_centroids, aisle_centers, slices_and_sums_vectors, column_sums_vector
+    return centroids, rotated_centroids, aisle_centers, slices_sum_vectors_and_trees, column_sums_vector
 
 
 def estimate_grid_dimensions(rotated_centroids):
@@ -299,19 +299,23 @@ def extrapolate_full_grid(grid_dim_x, grid_dim_y, orientation, shear, base_grid_
 def get_grid_scores_array(full_grid_np, image, sigma):
     _, canopies_mask = segmentation.extract_canopy_contours(image)
     full_grid_scores_np = np.empty(full_grid_np.shape)
+    full_grid_pose_to_score = {}
     for i in range(full_grid_np.shape[0]):
         for j in range((full_grid_np.shape[1])):
             if np.any(np.isnan(full_grid_np[(i, j)])):
                 full_grid_scores_np[(i, j)] = np.nan
             else:
                 x, y = full_grid_np[(i, j)]
-                full_grid_scores_np[(i, j)] = tree_score(canopies_mask, x, y, sigma)[0]
-    return full_grid_scores_np
+                score = tree_score(canopies_mask, x, y, sigma)[1]
+                full_grid_scores_np[(i, j)] = score
+                full_grid_pose_to_score[(int(x), int(y))] = score
+    return full_grid_scores_np, full_grid_pose_to_score
 
 
 def fit_pattern_on_grid(scores_array_np, pattern_np):
     max_mean_scores = -np.inf
     maximizing_origin = None
+    origin_to_sub_scores_array = {}
     for i in range(scores_array_np.shape[0]):
         for j in range(scores_array_np.shape[1]):
             if i + pattern_np.shape[0] > scores_array_np.shape[0] or j + pattern_np.shape[1] > scores_array_np.shape[1]:
@@ -320,10 +324,11 @@ def fit_pattern_on_grid(scores_array_np, pattern_np):
             if not np.all(np.logical_or(pattern_np != 1, np.logical_and(np.bitwise_not(np.isnan(sub_scores_array_np)), pattern_np == 1))):
                 continue
             mean_score = np.mean(np.multiply(np.nan_to_num(sub_scores_array_np), pattern_np))
+            origin_to_sub_scores_array[(i, j)] = np.multiply(np.nan_to_num(sub_scores_array_np), pattern_np)
             if mean_score > max_mean_scores:
                 max_mean_scores = mean_score
                 maximizing_origin = (i, j)
-    return maximizing_origin, max_mean_scores
+    return maximizing_origin, origin_to_sub_scores_array
 
 
 def refine_trunk_locations(image, trunk_coordinates_np, sigma, dim_x, dim_y, samples_along_axis=14):
