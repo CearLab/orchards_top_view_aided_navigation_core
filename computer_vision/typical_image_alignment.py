@@ -26,7 +26,8 @@ def orb_based_registration(image, baseline_image, max_features=500, good_match_p
     matches = matches[:good_matches_count]
 
     # Get matches image
-    matches_image = cv2.drawMatches(image_gray, keypoints, baseline_image_gray, keypoints_baseline, matches, None)
+    matches_image = cv2.drawMatches(image_gray, keypoints, baseline_image_gray, keypoints_baseline, matches,
+                                    outImg=None, matchColor=(255, 255, 0))
 
     # Extract location of good matches
     points = np.zeros((len(matches), 2), dtype=np.float32)
