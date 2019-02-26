@@ -24,8 +24,8 @@ class SyntheticScanGenerator(object):
         self.min_angle = rospy.get_param('~min_angle')
         self.max_angle = rospy.get_param('~max_angle')
         self.samples_num = rospy.get_param('~samples_num')
-        self.min_distance = rospy.get_param('~min_distance') # TODO: this is in pixels - not so good!!!!!
-        self.max_distance = rospy.get_param('~max_distance') # TODO: this is also in pixels - not so good!!!!!
+        self.min_distance_pixels = rospy.get_param('~min_distance')
+        self.max_distance_pixels = rospy.get_param('~max_distance')
         self.resolution = rospy.get_param('~resolution')
         self.r_primary_search_samples = rospy.get_param('~r_primary_search_samples')
         self.r_secondary_search_step = rospy.get_param('~r_secondary_search_step')
@@ -62,8 +62,8 @@ class SyntheticScanGenerator(object):
                                                  min_angle=self.min_angle,
                                                  max_angle=self.max_angle,
                                                  samples_num=self.samples_num,
-                                                 min_distance=self.min_distance,
-                                                 max_distance=self.max_distance,
+                                                 min_distance=self.min_distance_pixels,
+                                                 max_distance=self.max_distance_pixels,
                                                  resolution=self.resolution,
                                                  r_primary_search_samples=self.r_primary_search_samples,
                                                  r_secondary_search_step=self.r_secondary_search_step)
@@ -86,7 +86,6 @@ class SyntheticScanGenerator(object):
                 self.any_nan += 1
             if np.isnan(scan_ranges).all():
                 self.all_nans += 1
-                return # TODO: ???????????????????
             rospy.loginfo('%s :: Any NaN occurrences: %d' % (self.namespace, self.any_nan))
             rospy.loginfo('%s :: All NaN occurrences: %d' % (self.namespace, self.all_nans))
         if TRACK_INF_IN_SCANS:
@@ -104,8 +103,8 @@ class SyntheticScanGenerator(object):
         laser_scan.angle_max = self.max_angle
         laser_scan.angle_increment = (self.max_angle - self.min_angle) / self.samples_num
         laser_scan.scan_time = (curr_scan_time - self.prev_scan_time).seconds
-        laser_scan.range_min = self.min_distance * self.resolution
-        laser_scan.range_max = self.max_distance * self.resolution
+        laser_scan.range_min = self.min_distance_pixels * self.resolution
+        laser_scan.range_max = self.max_distance_pixels * self.resolution
         laser_scan.ranges = scan_ranges
         self.scan_pub.publish(laser_scan)
         self.prev_scan_time = curr_scan_time
