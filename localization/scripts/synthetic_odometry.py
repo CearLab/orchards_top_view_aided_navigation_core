@@ -14,10 +14,10 @@ class SyntheticOdometry(object):
         self.prev_actual_pose = None
         self.odom_frame_id = rospy.get_param('~odom_frame_id')
         self.base_frame_id = rospy.get_param('~base_frame_id')
-        self.noise_mu_x = float(rospy.get_param('~noise_mu_x', default=0)) # TODO: in meters!
-        self.noise_mu_y = float(rospy.get_param('~noise_mu_y', default=0)) # TODO: in meters!
-        self.noise_sigma_x = float(rospy.get_param('~noise_sigma_x', default=0)) # TODO: in meters!
-        self.noise_sigma_y = float(rospy.get_param('~noise_sigma_y', default=0)) # TODO: in meters!
+        self.noise_mu_x_meters = float(rospy.get_param('~noise_mu_x', default=0))
+        self.noise_mu_y_meters = float(rospy.get_param('~noise_mu_y', default=0))
+        self.noise_sigma_x_meters = float(rospy.get_param('~noise_sigma_x', default=0))
+        self.noise_sigma_y_meters = float(rospy.get_param('~noise_sigma_y', default=0))
         rospy.Subscriber('/ugv_pose', PointStamped, self.pose_callback)
 
     def pose_callback(self, this_actual_pose):
@@ -29,12 +29,12 @@ class SyntheticOdometry(object):
             return
         actual_delta_x = this_actual_pose.point.x - self.prev_actual_pose.point.x
         actual_delta_y = this_actual_pose.point.y - self.prev_actual_pose.point.y
-        if self.noise_mu_x != 0 or self.noise_sigma_x != 0:
-            broadcast_delta_x = actual_delta_x * self.resolution + np.random.normal(self.noise_mu_x, self.noise_sigma_x)
+        if self.noise_mu_x_meters != 0 or self.noise_sigma_x_meters != 0:
+            broadcast_delta_x = actual_delta_x * self.resolution + np.random.normal(self.noise_mu_x_meters, self.noise_sigma_x_meters)
         else:
             broadcast_delta_x = actual_delta_x * self.resolution
-        if self.noise_mu_y != 0 or self.noise_sigma_y != 0:
-            broadcast_delta_y = (actual_delta_y * self.resolution + np.random.normal(self.noise_mu_y, self.noise_sigma_y)) * (-1)
+        if self.noise_mu_y_meters != 0 or self.noise_sigma_y_meters != 0:
+            broadcast_delta_y = (actual_delta_y * self.resolution + np.random.normal(self.noise_mu_y_meters, self.noise_sigma_y_meters)) * (-1)
         else:
             broadcast_delta_y = (actual_delta_y * self.resolution) * (-1)
         self.broadcast_values = (self.broadcast_values[0] + broadcast_delta_x, self.broadcast_values[1] + broadcast_delta_y)
