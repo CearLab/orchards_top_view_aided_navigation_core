@@ -60,7 +60,7 @@ class ContoursScanVisualizer(object):
                                                                                  self.min_angle, self.max_angle, self.resolution)
         viz_image = cv_utils.draw_points_on_image(viz_image, trunks_scan_points_list, color=(255, 255, 0), radius=3)
         cv2.circle(viz_image, (int(np.round(message.point.x)), int(np.round(message.point.y))), radius=5, color=(255, 0, 255), thickness=-1)
-        viz_image, _, _ = cv_utils.crop_region(viz_image, message.point.x, message.point.y, self.window_size, self.window_size) # TODO: read from config
+        viz_image, _, _ = cv_utils.crop_region(viz_image, message.point.x, message.point.y, self.window_size, self.window_size)
         image_message = self.bridge.cv2_to_imgmsg(viz_image, encoding='bgr8')
         self.image_pub.publish(image_message)
 
