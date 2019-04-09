@@ -44,6 +44,6 @@ cpdef double[:] generate(unsigned char [:, :] contours_image, int center_x, int 
                         break
                 scan_ranges[scan_index] = np.linalg.norm(diff_vector) * resolution
                 break
-            scan_ranges[scan_index] = np.inf # TODO: risky!!
+            scan_ranges[scan_index] = np.inf
         scan_index += 1
     return scan_ranges
